@@ -48,7 +48,8 @@ export default function LeaderboardPanel({ gameId, board, status, connection, er
           <strong>Your last verified run</strong>
           <span>{scoreFormatter.format(lastVerified.rawScore)} × level {lastVerified.startLevel} = {scoreFormatter.format(lastVerified.finalScore)}</span>
           {lastVerified.claimed && <span>Score submitted to the leaderboard.</span>}
-          {!lastVerified.claimed && !lastVerified.eligibleToClaim && <span>This run did not reach the current Top 10.</span>}
+          {lastVerified.claimLost && <span>The Top 10 changed before your name was submitted. This run no longer qualifies.</span>}
+          {!lastVerified.claimed && !lastVerified.eligibleToClaim && !lastVerified.claimLost && <span>This run did not reach the current Top 10.</span>}
         </div>
       )}
     </aside>

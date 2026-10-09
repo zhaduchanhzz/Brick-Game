@@ -13,3 +13,22 @@ test('casual fallback is surfaced as an unranked run', () => {
   unsubscribe()
   publishRunMode({ mode: 'idle' })
 })
+
+test('a ranked run explains when the name form can appear', () => {
+  render(<RunModeNotice runMode={{ mode: 'ranked' }} />)
+  expect(screen.getByRole('status').textContent).toContain('after game over')
+  expect(screen.getByRole('status').textContent).toContain('Top 10')
+})
+
+test('verification and ineligible outcomes remain visible after game over', () => {
+  const view = render(<RunModeNotice runMode={{ mode: 'verifying' }} />)
+  expect(screen.getByRole('status').textContent).toContain('verifying your final score')
+  view.rerender(<RunModeNotice runMode={{ mode: 'not-eligible' }} />)
+  expect(screen.getByRole('status').textContent).toContain('No name form is shown')
+})
+
+test('a failed verification is announced as an error', () => {
+  render(<RunModeNotice runMode={{ mode: 'verify-error', reason: 'NETWORK_ERROR' }} />)
+  expect(screen.getByRole('alert').textContent).toContain('could not be reached')
+  expect(screen.getByRole('alert').textContent).toContain('cannot enter Top 10')
+})

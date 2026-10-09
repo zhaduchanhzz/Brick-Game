@@ -62,17 +62,25 @@ const completeRun = (run) => {
   run.timer = null
   run.queue.length = 0
   if (!run.runId) return
+  const finishGeneration = generation
+  publishRunMode({ mode: 'verifying' })
   const { runId, gameId, state, events } = run
   finishRun(runId, {
     rulesVersion: RULES_VERSION,
     totalTicks: state.tick,
     actions: events
   }).then(result => {
+    if (generation !== finishGeneration) return
     if (result.verified === true) {
+      publishRunMode({ mode: result.eligibleToClaim === true ? 'qualified' : 'not-eligible' })
       publishVerifiedRun({ runId, gameId, ...result })
+    } else {
+      publishRunMode({ mode: 'verify-error' })
     }
-  }).catch(() => {
-    // A failed verification never opens the nickname form.
+  }).catch(error => {
+    if (generation === finishGeneration) {
+      publishRunMode({ mode: 'verify-error', reason: error.code })
+    }
   })
 }
 
@@ -80,6 +88,7 @@ const advance = (run) => {
   if (active !== run || run.state.terminal) return
   if (run.state.tick >= MAX_TICKS) {
     resetGame()
+    publishRunMode({ mode: 'limit' })
     return
   }
   const action = run.queue.shift() || null
@@ -91,6 +100,7 @@ const advance = (run) => {
     if (next.terminal) completeRun(run)
   } catch (error) {
     resetGame()
+    publishRunMode({ mode: 'verify-error' })
   }
 }
 
@@ -153,12 +163,12 @@ export const togglePause = () => {
   run.queue.push(run.state.paused ? 'resume' : 'pause')
 }
 
-export const resetGame = () => {
-  generation++
+export const resetGame = (preserveRunMode = false) => {
+  if (!preserveRunMode) generation++
   starting = false
   if (active) clearInterval(active.timer)
   active = null
-  publishRunMode({ mode: 'idle' })
+  if (!preserveRunMode) publishRunMode({ mode: 'idle' })
   const { game } = store.getState()
   store.dispatch(setPause(0))
   store.dispatch(setSpeed(1))
@@ -168,5 +178,5 @@ export const resetGame = () => {
 }
 
 export const finishDisplay = () => {
-  if (active && active.state.terminal) resetGame()
+  if (active && active.state.terminal) resetGame(true)
 }

@@ -119,14 +119,14 @@ const runTank = (state, game) => {
   state.score = game.score
 }
 
-export const step = (state, action = null) => {
+const advance = (state, action, copyGame) => {
   if (!state || state.terminal || !GAME_IDS.includes(state.gameId) || !Number.isInteger(state.tick) || state.tick >= MAX_TICKS) {
     throw new Error('Game already finished or invalid')
   }
   if (action !== null && action !== 'pause' && action !== 'resume' && !actionsByGame[state.gameId].includes(action)) {
     throw new Error('Invalid game action')
   }
-  const next = { ...state, tick: state.tick + 1, game: cloneGame(state.game) }
+  const next = { ...state, tick: state.tick + 1, game: copyGame ? cloneGame(state.game) : state.game }
   if (action === 'pause') {
     if (next.paused) throw new Error('Already paused')
     next.paused = true
@@ -251,6 +251,11 @@ export const step = (state, action = null) => {
   return next
 }
 
+// The UI retains prior states for rendering, so its public step remains immutable.
+// Verification discards each prior state immediately and can avoid a JSON copy.
+export const step = (state, action = null) => advance(state, action, true)
+export const stepReplay = (state, action = null) => advance(state, action, false)
+
 export const verifyReplay = ({ gameId, seed, startLevel, startSpeed = 1, totalTicks, events }) => {
   if (!Number.isInteger(totalTicks) || totalTicks < 1 || totalTicks > MAX_TICKS || !Array.isArray(events) || events.length > MAX_EVENTS) {
     throw new Error('Invalid replay bounds')
@@ -266,7 +271,16 @@ export const verifyReplay = ({ gameId, seed, startLevel, startSpeed = 1, totalTi
   }
   for (let tick = 1; tick <= totalTicks; tick++) {
     const action = eventIndex < events.length && events[eventIndex].tick === tick ? events[eventIndex++].action : null
-    state = step(state, action)
+    if (state.paused && action === null) {
+      // No game state, RNG, or timer advances while paused. Jump over the
+      // action-free interval without weakening event ordering or terminal checks.
+      const nextEventTick = eventIndex < events.length ? events[eventIndex].tick : totalTicks + 1
+      const lastPausedTick = Math.min(totalTicks, nextEventTick - 1)
+      state = { ...state, tick: lastPausedTick }
+      tick = lastPausedTick
+      continue
+    }
+    state = stepReplay(state, action)
     if (state.terminal && tick !== totalTicks) throw new Error('Replay continued after game over')
   }
   if (!state.terminal || eventIndex !== events.length) throw new Error('Game did not end')

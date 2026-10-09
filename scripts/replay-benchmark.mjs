@@ -15,7 +15,7 @@ require.extensions['.js'] = (module, filename) => {
   })
   module._compile(output.code, filename)
 }
-const { createInitialState, step, verifyReplay, MAX_TICKS } = require('../src/engine/replay.js')
+const { createInitialState, step, stepReplay, verifyReplay, MAX_TICKS } = require('../src/engine/replay.js')
 const games = ['tank', 'tetris', 'snake', 'shooting', 'racing', 'breakout']
 
 function actionFor(gameId, state) {
@@ -65,18 +65,21 @@ for (const gameId of games) {
 
   // Active-step stress estimate across successive games. This is not a valid
   // single replay, but exercises 12k real gameplay steps for CPU comparison.
-  const activeStepMs = medianMillis(() => {
+  const playActiveSteps = advance => {
     let state = createInitialState(gameId, 4343, 1, 1)
     let played = 0
     let runNumber = 0
     while (played < MAX_TICKS) {
       if (state.terminal) state = createInitialState(gameId, 4343 + ++runNumber, 1, 1)
-      state = step(state, actionFor(gameId, state))
+      state = advance(state, actionFor(gameId, state))
       played++
     }
-  }, 3)
+  }
+  const activeStepMs = medianMillis(() => playActiveSteps(step), 3)
+  const optimizedActiveStepMs = medianMillis(() => playActiveSteps(stepReplay), 3)
   results.push({ gameId, naturalTicks: natural.totalTicks, actions: natural.events.length,
-    rawScore: natural.rawScore, naturalReplayMs, maxTickReplayMs, active12000StepsMs: activeStepMs })
+    rawScore: natural.rawScore, naturalReplayMs, maxTickReplayMs,
+    active12000StepsMs: activeStepMs, optimizedActive12000StepsMs: optimizedActiveStepMs })
 }
 
 console.log(JSON.stringify({ environment: 'Node local wall time; not Cloudflare billed CPU', maxTicks: MAX_TICKS, results }, null, 2))

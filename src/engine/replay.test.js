@@ -1,5 +1,5 @@
 import { GAME_IDS } from './registry'
-import { createInitialState, isAllowedAction, step, verifyReplay } from './replay'
+import { createInitialState, isAllowedAction, step, stepReplay, verifyReplay, MAX_TICKS } from './replay'
 import Tetris from '../games/tetris/tetris'
 
 const firstActions = {
@@ -102,6 +102,43 @@ describe('shared deterministic game engine', () => {
         expect(a).toEqual(b)
       }
     }
+  })
+
+  test.each(GAME_IDS)('%s optimized replay step matches the immutable UI step', gameId => {
+    for (const seed of [1, 4343]) {
+      for (const level of [1, 7]) {
+        for (const speed of [1, 6]) {
+          let client = createInitialState(gameId, seed, level, speed)
+          let replay = createInitialState(gameId, seed, level, speed)
+          for (let tick = 1; tick <= 240 && !client.terminal; tick++) {
+            const action = tick === 2 ? 'pause' : tick === 12 ? 'resume' :
+              !client.paused && tick % 7 === 0 ? firstActions[gameId] : null
+            client = step(client, action)
+            replay = stepReplay(replay, action)
+            expect(replay).toEqual(client)
+          }
+        }
+      }
+    }
+  })
+
+  test.each(GAME_IDS)('%s verifies an exact 12k-tick pause-padded terminal trace', gameId => {
+    let state = createInitialState(gameId, 4343, 1, 6)
+    const events = []
+    while (!state.terminal && state.tick < MAX_TICKS) {
+      const action = gameId === 'tetris' && state.tick % 2 === 0 ? 'down' :
+        gameId === 'snake' && state.tick === 0 ? 'left' : null
+      state = step(state, action)
+      if (action) events.push({ tick: state.tick, action })
+    }
+    expect(state.terminal).toBe(true)
+    const shift = MAX_TICKS - state.tick
+    expect(shift).toBeGreaterThan(1)
+    const padded = [{ tick: 1, action: 'pause' }, { tick: shift, action: 'resume' },
+      ...events.map(event => ({ tick: event.tick + shift, action: event.action }))]
+    const session = { gameId, seed: 4343, startLevel: 1, startSpeed: 6, totalTicks: MAX_TICKS }
+    expect(verifyReplay({ ...session, events: padded })).toEqual({ terminal: true, rawScore: state.score })
+    expect(() => verifyReplay({ ...session, events: [padded[0], { tick: 2, action: 'left' }, ...padded.slice(1)] })).toThrow()
   })
 
   test.each(['tetris', 'shooting', 'racing', 'breakout', 'tank'])('%s terminal trace replays exactly', gameId => {

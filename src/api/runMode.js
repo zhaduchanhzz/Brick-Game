@@ -1,5 +1,8 @@
 const listeners = new Set()
-const VALID_MODES = new Set(['idle', 'ranked', 'casual'])
+const VALID_MODES = new Set([
+  'idle', 'ranked', 'casual', 'verifying', 'qualified', 'not-eligible',
+  'verify-error', 'limit', 'claim-skipped', 'claimed',
+])
 let currentMode = { mode: 'idle' }
 
 export function subscribeRunMode(listener) {

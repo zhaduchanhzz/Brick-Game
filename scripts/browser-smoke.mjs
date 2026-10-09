@@ -521,11 +521,50 @@ async function runRankedSnake(cdp, network) {
   await until(() => Promise.resolve(network.apiResponses.find(response => response.path === '/api/runs' && response.status === 201)),
     Boolean, 'ranked run start')
   await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Playing"]') !== null`), Boolean, 'Snake playing')
+  const rankedNoticeVisible = await cdp.eval(`(() => {
+    const notice = [...document.querySelectorAll('[role="status"]')]
+      .find(element => element.textContent.includes('Ranked run:'))
+    if (!notice) return false
+    const rect = notice.getBoundingClientRect()
+    const css = getComputedStyle(notice)
+    return rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= innerHeight &&
+      css.display !== 'none' && css.visibility !== 'hidden'
+  })()`)
+  if (!rankedNoticeVisible) fail('Mobile ranked status is not visibly rendered during play')
   await clickButton(cdp, 'LEFT')
+  const openedTopTen = await cdp.eval(`(() => {
+    const button = [...document.querySelectorAll('button')].find(item => item.textContent.includes('Top 10'))
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!openedTopTen) fail('Mobile Top 10 trigger is missing during ranked play')
+  await until(() => cdp.eval(`document.querySelector('[role="dialog"][aria-labelledby="mobile-leaderboard-title"]') !== null`),
+    Boolean, 'mobile Top 10 overlay during game over')
   await until(() => Promise.resolve(network.apiResponses.find(response => response.path.endsWith('/finish') && response.status === 200)),
     Boolean, 'verified Snake finish', 20000)
   await until(() => cdp.eval(`document.querySelector('[role="dialog"] #claim-nickname') !== null`),
     Boolean, 'verified Top 10 nickname dialog')
+  const claimStack = await cdp.eval(`(() => {
+    const input = document.querySelector('#claim-nickname')
+    const claim = input?.closest('[role="dialog"]')
+    const leaderboard = document.querySelector('[role="dialog"][aria-labelledby="mobile-leaderboard-title"]')
+    if (!input || !claim || !leaderboard) return null
+    const rect = input.getBoundingClientRect()
+    const topmost = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    return { claimZ: Number(getComputedStyle(claim.parentElement).zIndex),
+      leaderboardZ: Number(getComputedStyle(leaderboard.parentElement).zIndex),
+      inputTopmost: topmost === input, inputFocused: document.activeElement === input }
+  })()`)
+  if (!claimStack || claimStack.claimZ <= claimStack.leaderboardZ ||
+    !claimStack.inputTopmost || !claimStack.inputFocused) {
+    fail(`Verified name form is obscured by the mobile Top 10 overlay: ${JSON.stringify(claimStack)}`)
+  }
+  if (process.env.BRICK_PRODUCTION_MODAL_E2E === '1') {
+    const screenshot = await capture(cdp, 'ranked-snake-modal-production-390x844.png', 390)
+    return { rankedStart: 201, verifiedFinish: 200, eligibleModal: true,
+      claimSubmitted: false, rankedNoticeVisible, claimStack, screenshot }
+  }
   await cdp.eval(`document.querySelector('#claim-nickname').focus()`)
   await cdp.send('Input.insertText', { text: 'SMOKE_PLAYER' })
   await cdp.eval(`document.querySelector('[role="dialog"] button[type="submit"]').click()`)
@@ -537,7 +576,7 @@ async function runRankedSnake(cdp, network) {
   if (!boardText.includes('v1')) fail('Snake leaderboard version did not advance to 1')
   const screenshot = await capture(cdp, 'ranked-snake-claimed-390x844.png', 390)
   return { rankedStart: 201, verifiedFinish: 200, claim: 200, leaderboardVersion: 1,
-    nickname: 'SMOKE_PLAYER', screenshot }
+    nickname: 'SMOKE_PLAYER', rankedNoticeVisible, claimStack, screenshot }
 }
 
 async function checkResizeCycle(cdp) {
@@ -699,8 +738,15 @@ async function checkRetroPortraitGaps(cdp) {
 
 async function main() {
   const url = new URL(BASE_URL)
-  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)) {
-    fail('Browser smoke is restricted to a local HTTP server')
+  const local = url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname)
+  const isolatedPreview = process.env.BRICK_PREVIEW_E2E === '1' && process.env.BRICK_RANKED_E2E === '1' &&
+    url.protocol === 'https:' && url.hostname === 'ranked-audit-brick-game.zhaduchanhzz.workers.dev' &&
+    !url.port && url.pathname === '/' && !url.search && !url.hash
+  const productionModalOnly = process.env.BRICK_PRODUCTION_MODAL_E2E === '1' && process.env.BRICK_RANKED_E2E === '1' &&
+    url.protocol === 'https:' && url.hostname === 'brick-game.zhaduchanhzz.workers.dev' &&
+    !url.port && url.pathname === '/' && !url.search && !url.hash
+  if (!local && !isolatedPreview && !productionModalOnly) {
+    fail('Browser smoke requires a local server, ranked QA Preview, or the modal-only production target')
   }
   const browser = (await Promise.all(BROWSER_CANDIDATES.map(async candidate => {
     if (!path.isAbsolute(candidate)) return null
@@ -709,7 +755,7 @@ async function main() {
   }))).find(Boolean)
   if (!browser) fail('Chrome or Edge executable not found; set CHROME_PATH')
   const health = await fetch(`${BASE_URL}/api/health`)
-  if (!health.ok) fail(`Local Worker health returned ${health.status}`)
+  if (!health.ok) fail(`Worker health returned ${health.status}`)
   await fs.mkdir(OUTPUT, { recursive: true })
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'brick-browser-smoke-'))
   const chrome = spawn(browser, [

@@ -8,7 +8,7 @@ import ClaimNameDialog from '../components/leaderboard/ClaimNameDialog'
 import RunModeNotice from '../components/run/RunModeNotice'
 import useLeaderboardSync from '../hooks/useLeaderboardSync'
 import { subscribeVerifiedRun } from '../api/runResults'
-import { subscribeRunMode } from '../api/runMode'
+import { publishRunMode, subscribeRunMode } from '../api/runMode'
 import { COLOR_FIELDS, DEFAULT_PRESET_ID, THEME_STORAGE_VERSION, isHexColor, loadTheme, resolveTheme, saveTheme, themeVariables } from '../theme/presets'
 import style from './index.module.less'
 
@@ -79,7 +79,6 @@ export default function App() {
   const resolvedTheme = resolveTheme(theme)
   const board = leaderboard.games[gameId] || { version: 0, entries: [] }
   const leaderboardProps = { gameId, board, status: leaderboard.status, connection: leaderboard.connection, error: leaderboard.error, onRetry: leaderboard.retry, lastVerified }
-  const claimLost = Boolean(lastVerified && lastVerified.gameId === gameId && lastVerified.claimLost)
 
   useEffect(() => saveTheme(theme), [theme])
   useEffect(() => subscribeVerifiedRun(result => {
@@ -88,7 +87,7 @@ export default function App() {
   }), [])
   useEffect(() => subscribeRunMode(mode => {
     setRunMode(mode)
-    if (mode.mode !== 'idle') {
+    if (mode.mode === 'ranked' || mode.mode === 'casual') {
       setLastVerified(current => current && current.claimLost ? { ...current, claimLost: false } : current)
     }
   }), [])
@@ -110,11 +109,18 @@ export default function App() {
     setLastVerified(current => current && current.runId === result.runId ? { ...current, claimed: true } : current)
     setClaimCandidate(null)
     leaderboard.notifyVersion(result.gameId, response.boardVersion)
+    publishRunMode({ mode: 'claimed' })
   }
 
   function onIneligible() {
     setLastVerified(current => current ? { ...current, eligibleToClaim: false, claimLost: true } : current)
     setClaimCandidate(null)
+    publishRunMode({ mode: 'not-eligible', reason: 'BOARD_CHANGED' })
+  }
+
+  function onClaimClosed() {
+    setClaimCandidate(null)
+    publishRunMode({ mode: 'claim-skipped' })
   }
 
   return (
@@ -126,10 +132,7 @@ export default function App() {
           <span>Six classics. One machine.</span>
         </div>
         <div className={style.gameTitle}><span className={style.liveDot} /> NOW PLAYING <strong>{gameId.toUpperCase()}</strong></div>
-        <RunModeNotice runMode={runMode} />
-        {claimLost && (
-          <p className={style.claimAlert} role="alert">The Top 10 changed while you entered your name. This run no longer qualifies.</p>
-        )}
+        {runMode.mode !== 'idle' && <div className={style.runNotice}><RunModeNotice runMode={runMode} /></div>}
         <div className={style.toolbar}>
           <ThemeDialog theme={theme} onColorChange={changeColor} onPresetChange={choosePreset} onReset={resetTheme} />
           <MobileLeaderboard panelProps={leaderboardProps} />
@@ -142,7 +145,7 @@ export default function App() {
         </main>
         <div className={style.desktopLeaderboard}><LeaderboardPanel {...leaderboardProps} /></div>
       </div>
-      <ClaimNameDialog result={claimCandidate} returnFocusRef={gameMainRef} onClose={() => setClaimCandidate(null)} onClaimed={onClaimed} onIneligible={onIneligible} />
+      <ClaimNameDialog result={claimCandidate} returnFocusRef={gameMainRef} onClose={onClaimClosed} onClaimed={onClaimed} onIneligible={onIneligible} />
     </div>
   )
 }

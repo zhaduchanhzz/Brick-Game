@@ -10,9 +10,10 @@
     "run_worker_first": ["/api/*", "/ws/*"]
   },
   "vars": {
-    "ENABLE_RANKED": "false",
+    "ENABLE_RANKED": "true",
     "ENABLE_LEADERBOARD_WS": "true"
   },
+  "limits": { "cpu_ms": 5000 },
   "d1_databases": [
     {
       "binding": "DB",

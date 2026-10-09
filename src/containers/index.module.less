@@ -65,8 +65,7 @@
 }
 .gameTitle strong { color: #fff; font-size: 15px; letter-spacing: 1px; }
 .liveDot { width: 9px; height: 9px; border-radius: 50%; background: #7df2a5; box-shadow: 0 0 0 4px rgba(125, 242, 165, .17); }
-.header > p[role='status'] { width: 100%; margin: 16px 0 0; }
-.claimAlert { width: 100%; margin: 16px 0 0; border: 1px solid #f2a893; border-radius: 9px; padding: 10px 12px; background: #542b28; color: #fff0eb; font-size: 13px; line-height: 1.4; text-align: center; }
+.runNotice { width: 100%; margin-top: 16px; }
 .controlsHint { max-width: 340px; margin: 26px 0 0; color: #e2edf2; font-size: 12px; line-height: 1.5; text-align: left; }
 .desktopLeaderboard {
   grid-column: 3;
@@ -119,17 +118,8 @@
   }
   .gameColumn { width: 100%; }
   .gameTitle, .controlsHint, .desktopLeaderboard { display: none; }
-  .header > p[role='status'] {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
-  .claimAlert { order: 2; margin: 4px 0; font-size: 11px; }
+  .runNotice { order: 2; margin-top: 4px; }
+  .runNotice > p { margin: 0 0 4px; padding: 5px 8px; font-size: 11px; }
   .mobileLeaderboardButton {
     display: inline-flex;
     align-items: center;
