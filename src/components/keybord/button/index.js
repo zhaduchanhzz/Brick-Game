@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import cn from 'classnames'
 import style from './index.module.less'
 import { transform } from '../../../utils/const'
@@ -10,11 +10,15 @@ import PropTypes from 'prop-types'
 const Button = ({ color, size, top, left, label, position, arrow, type }) => {
   const [active, setActive] = useState(false)
   const suppressClick = useRef(false)
+  const activeSince = useRef(null)
+  const releaseTimer = useRef(null)
   const pause = useSelector(state => state.pause, shallowEqual)
   const game = useSelector(state => state.game, shallowEqual)
 
   const memoHandleDown = useCallback(
     () => {
+      clearTimeout(releaseTimer.current)
+      activeSince.current = Date.now()
       setActive(true)
       if (pause === 0) {
         control['todo'][type]()
@@ -27,11 +31,20 @@ const Button = ({ color, size, top, left, label, position, arrow, type }) => {
 
   const memoHandleUp = useCallback(
     () => {
-      setActive(false)
       control.clearLoop()
+      clearTimeout(releaseTimer.current)
+      if (activeSince.current === null) return
+      // Keep a quick tap visible long enough to feel like a physical press.
+      const remaining = Math.max(0, 90 - (Date.now() - activeSince.current))
+      releaseTimer.current = setTimeout(() => {
+        activeSince.current = null
+        setActive(false)
+      }, remaining)
     },
     []
   )
+
+  useEffect(() => () => clearTimeout(releaseTimer.current), [])
 
   return (
     <button

@@ -373,6 +373,86 @@ async function capture(cdp, filename, width) {
   return file
 }
 
+async function checkLcdAndButtonFeedback(cdp, width) {
+  await until(() => cdp.eval(`(() => {
+    const cells = [...document.querySelectorAll('main [class*="index_matrix"] b')]
+    return { total: cells.length, lit: cells.filter(cell => cell.classList.contains('c') || cell.classList.contains('d')).length }
+  })()`), value => value?.total === 200 && value.lit > 0, 'active LCD pixels')
+  // Let the brief LCD transition finish before comparing lit and idle cells.
+  await sleep(100)
+  const lcd = await cdp.eval(`(() => {
+    const cells = [...document.querySelectorAll('main [class*="index_matrix"] b')]
+    const idle = cells.find(cell => !cell.className)
+    const litCells = cells.filter(cell => cell.classList.contains('c') || cell.classList.contains('d'))
+    if (!idle || !litCells.length) return null
+    const idleStyle = getComputedStyle(idle)
+    const litStyle = getComputedStyle(litCells[0])
+    const litOpacity = Math.max(...litCells.map(cell => Number(getComputedStyle(cell).opacity)))
+    return { idleOpacity: Number(idleStyle.opacity), litOpacity,
+      idleTransition: idleStyle.transitionDuration, litTransition: litStyle.transitionDuration,
+      idleProperty: idleStyle.transitionProperty }
+  })()`)
+  const maxDurationMs = duration => Math.max(...duration.split(',').map(value => parseFloat(value) *
+    (value.trim().endsWith('ms') ? 1 : 1000)))
+  if (!lcd || lcd.idleOpacity > .25 || lcd.litOpacity < .85 ||
+    !lcd.idleProperty.split(',').map(value => value.trim()).includes('opacity') ||
+    maxDurationMs(lcd.idleTransition) > 90 || maxDurationMs(lcd.litTransition) > 90) {
+    fail(`${width}px LCD pixels lack subdued idle ink or short opacity persistence: ${JSON.stringify(lcd)}`)
+  }
+
+  const button = await cdp.eval(`(() => {
+    const element = document.querySelector('button[aria-label="LEFT"]')
+    const icon = element?.querySelector('i')
+    if (!icon) return null
+    const box = element.getBoundingClientRect()
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2,
+      before: getComputedStyle(icon).transform }
+  })()`)
+  if (!button) fail(`${width}px LEFT physical button is missing`)
+  let held = null
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed', x: button.x, y: button.y, button: 'left', clickCount: 1
+  })
+  try {
+    await until(() => cdp.eval(`document.querySelector('button[aria-label="LEFT"] i')?.className.includes('active')`),
+      Boolean, 'held LEFT physical button')
+    await sleep(110)
+    held = await cdp.eval(`(() => {
+      const icon = document.querySelector('button[aria-label="LEFT"] i')
+      return { active: icon.className.includes('active'), transform: getComputedStyle(icon).transform }
+    })()`)
+  } finally {
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x: button.x, y: button.y, button: 'left', clickCount: 1
+    })
+  }
+  if (!held?.active || held.transform === button.before || held.transform === 'none') {
+    fail(`${width}px held physical button has no depressed visual transform: ${JSON.stringify({ button, held })}`)
+  }
+  await until(() => cdp.eval(`!document.querySelector('button[aria-label="LEFT"] i')?.className.includes('active')`),
+    Boolean, 'released LEFT physical button')
+
+  await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  let reduced
+  try {
+    reduced = await cdp.eval(`(() => {
+      const pixel = document.querySelector('main [class*="index_matrix"] b')
+      const icon = document.querySelector('button[aria-label="LEFT"] i')
+      return { enabled: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        pixelTransition: getComputedStyle(pixel).transitionDuration,
+        buttonTransition: getComputedStyle(icon).transitionDuration }
+    })()`)
+  } finally {
+    await cdp.send('Emulation.setEmulatedMedia', { features: [] })
+  }
+  if (!reduced.enabled || maxDurationMs(reduced.pixelTransition) !== 0 ||
+    maxDurationMs(reduced.buttonTransition) !== 0) {
+    fail(`${width}px reduced-motion preference did not disable LCD/button transitions: ${JSON.stringify(reduced)}`)
+  }
+  const screenshot = await capture(cdp, `lcd-active-mobile-${width}.png`, width)
+  return { lcd, buttonDepressed: held.transform, reducedMotion: reduced, screenshot }
+}
+
 async function exerciseAllGames(cdp, network, bootstrapRequestCount) {
   const inputs = {
     tank: 'LEFT', tetris: 'DOWN', snake: 'DOWN',
@@ -435,8 +515,11 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
   if (dimensions.viewport !== width || dimensions.document > width + 1 || dimensions.body > width + 1) {
     fail(`${width}px horizontal overflow: ${JSON.stringify(dimensions)}`)
   }
+  // visualViewport can settle a frame after navigation on small emulated phones.
+  const composition = await until(() => mobile
+    ? checkMobileComposition(cdp, width, height)
+    : checkDesktopComposition(cdp, width, height), Boolean, `${width}x${height} initial composition`)
   const deviceRect = await checkViewportFit(cdp, width, height, mobile)
-  const composition = mobile ? await checkMobileComposition(cdp, width, height) : await checkDesktopComposition(cdp, width, height)
   await checkPageHeight(cdp, width, height, 'menu')
   if (layoutOnly) {
     const screenshot = await capture(cdp, `tablet-${width}x${height}.png`, width)
@@ -464,8 +547,10 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
     !document.querySelector('main[aria-label="Brick Game machine"]')?.textContent?.includes('WELCOME')`), Boolean, `${width}px game start`, 15000)
   await until(() => cdp.eval(`document.querySelector('header [role="status"]') !== null`),
     Boolean, `${width}px run-mode notice`)
+  const lcdFeedback = mobile && width === 390 ? await checkLcdAndButtonFeedback(cdp, width) : null
   await checkViewportFit(cdp, width, height, mobile)
-  if (mobile) await checkMobileComposition(cdp, width, height)
+  if (mobile) await until(() => checkMobileComposition(cdp, width, height),
+    Boolean, `${width}x${height} active-run composition`)
   else await checkDesktopComposition(cdp, width, height)
   await checkPageHeight(cdp, width, height, 'active run')
   let retroScreenshot = null
@@ -484,7 +569,8 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
   await clickButton(cdp, 'RESET(R)')
   await until(() => cdp.eval(`document.querySelector('main[aria-label="Brick Game machine"]')?.textContent?.includes('WELCOME')`), Boolean, `${width}px reset to menu`)
   await checkViewportFit(cdp, width, height, mobile)
-  if (mobile) await checkMobileComposition(cdp, width, height)
+  if (mobile) await until(() => checkMobileComposition(cdp, width, height),
+    Boolean, `${width}x${height} reset composition`)
   else await checkDesktopComposition(cdp, width, height)
   await checkPageHeight(cdp, width, height, 'reset')
 
@@ -505,7 +591,7 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
     if (retroReloadGets !== 1) fail(`Retro reload made ${retroReloadGets} leaderboard GETs`)
   }
   return { viewport: `${width}x${height}`, dimensions: after, deviceRect, composition, overlays, bootstrapGets: bootRequests,
-    webSocketStatus: 101, switchingGets: 0, exercisedGames, screenshot, retroScreenshot, retroReloadGets }
+    webSocketStatus: 101, switchingGets: 0, exercisedGames, lcdFeedback, screenshot, retroScreenshot, retroReloadGets }
 }
 
 async function runRankedSnake(cdp, network) {

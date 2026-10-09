@@ -36,6 +36,8 @@
     i {
         display: block;
         position: relative;
+        transform: translateY(0);
+        transition: transform 90ms ease-out, box-shadow 90ms ease-out;
         border: 2px solid rgba(0, 0, 0, .72);
         border-radius: 50%;
         background-image:
@@ -56,6 +58,7 @@
             left: 0;
             border-radius: 50%;
             box-shadow: 0 5px 10px rgba(255, 255, 255, .8) inset;
+            transition: box-shadow 90ms ease-out;
         }
 
         &:after {
@@ -63,6 +66,8 @@
         }
 
         &.active {
+            transform: translateY(2px) scale(.985);
+
             &:before {
                 box-shadow: 0 -3px 6px rgba(255, 255, 255, .6) inset;
             }
@@ -141,4 +146,10 @@
             margin: -12px 0 0 -8px;
         }
     }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .button i,
+    .button i:before,
+    .button i:after { transition: none; }
 }
