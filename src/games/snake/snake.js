@@ -13,14 +13,15 @@ export default class Snake {
 
   initHead() {
     return [
-      Math.floor(this.rng()*19),
+      Math.floor(this.rng()*20),
       Math.floor(this.rng()*4)
     ]
   }
 
-  initBodies({ levels }) {
+  initBodies(levels) {
+    const level = typeof levels === 'number' ? levels : levels && levels.levels
     let bodies = [this.head]
-    let l = levels + 1
+    let l = level + 1
     if(l > 5) l = 5
     while(bodies.length < 6 && l > 0) {
       bodies.push([
@@ -77,8 +78,9 @@ export default class Snake {
   }
 
   //检测头是否撞到身体
-  checkHeadBody(x, y) {
-    return this.bodies.slice(1).some(point => {
+  checkHeadBody(x, y, includeTail = true) {
+    const occupied = includeTail ? this.bodies.slice(1) : this.bodies.slice(1, -1)
+    return occupied.some(point => {
       return point[0] === x && point[1] === y
     })
   }
@@ -106,14 +108,16 @@ export default class Snake {
       return false
     }
 
-    if (!this.checkBorder(x, y) || this.checkHeadBody(x, y)) {
+    const eating = x === this.food[0] && y === this.food[1]
+    // The tail vacates its current cell on a non-growing move.
+    if (!this.checkBorder(x, y) || this.checkHeadBody(x, y, eating)) {
       this.setDeath(true)
       return false
     }
 
     this.head = [x, y]
 
-    if (x === this.food[0] && y === this.food[1]) {
+    if (eating) {
       this.addBody()
       this.food = this.changeFood()
       return true
@@ -136,8 +140,8 @@ export default class Snake {
 
 export const randomXY = (rng = Math.random) => {
   return [
-    Math.floor(rng()*19),
-    Math.floor(rng()*9),
+    Math.floor(rng()*20),
+    Math.floor(rng()*10),
   ]
 }
 

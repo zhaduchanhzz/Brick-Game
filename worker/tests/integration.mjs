@@ -215,13 +215,15 @@ test('Worker D1, Durable Object claims, and WebSocket integration', { timeout: 1
     assert.equal(started.startSpeed, 4);
     assert.match(start.headers.get('Set-Cookie'), /HttpOnly/);
     const cookie = start.headers.get('Set-Cookie').split(';')[0];
+    assert.equal((await post(`/api/runs/${started.runId}/finish`,
+      { rulesVersion: started.rulesVersion - 1, totalTicks: 1, actions: [] }, cookie)).status, 400);
     const forgedFinish = await post(`/api/runs/${started.runId}/finish`,
-      { rulesVersion: 1, totalTicks: 1, actions: [], score: 9999999 }, cookie);
+      { rulesVersion: started.rulesVersion, totalTicks: 1, actions: [], score: 9999999 }, cookie);
     assert.equal(forgedFinish.status, 400);
     assert.equal((await post(`/api/runs/${started.runId}/finish`,
-      { rulesVersion: 1, totalTicks: 1, actions: [], gameId: 'tank', startLevel: 10 }, cookie)).status, 400);
+      { rulesVersion: started.rulesVersion, totalTicks: 1, actions: [], gameId: 'tank', startLevel: 10 }, cookie)).status, 400);
     const earlyFinish = await post(`/api/runs/${started.runId}/finish`,
-      { rulesVersion: 1, totalTicks: 1, actions: [] }, cookie);
+      { rulesVersion: started.rulesVersion, totalTicks: 1, actions: [] }, cookie);
     assert.equal(earlyFinish.status, 422);
 
     // Produce a terminal trace from the exact shared engine code, then send it

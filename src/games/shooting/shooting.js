@@ -67,7 +67,7 @@ export default class Shooting {
       return false
     }
     this.stones = this.stones.filter((stone) =>
-      (stone[0] !== shootedStone[0] && stone[1] !== shootedStone))
+      stone[0] !== shootedStone[0] || stone[1] !== shootedStone[1])
     return true
   }
 

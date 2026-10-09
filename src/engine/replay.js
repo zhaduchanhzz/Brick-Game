@@ -8,7 +8,7 @@ import Racing, { createNewRacing, speeds as racingSpeeds } from '../games/racing
 import Breakout, { createNewBreakout, initPaddleY, initX, initY } from '../games/breakout/breakout'
 import Tank, { createNewTank } from '../games/tank/tank'
 
-export const RULES_VERSION = 1
+export const RULES_VERSION = 2
 export const TICK_RATE = 20
 export const MAX_TICKS = 12000
 export const MAX_EVENTS = 6000
@@ -30,6 +30,8 @@ const validSeed = (seed) => Number.isInteger(Number(seed)) && Number(seed) > 0 &
 const randomFor = (state) => () => nextRandom(state)
 const cloneGame = (game) => JSON.parse(JSON.stringify(game))
 const speedFor = (score) => Math.max(1, Math.min(6, Math.ceil(score / 3000)))
+const breakoutSpeeds = [300, 275, 250, 225, 200, 175]
+const tankEnemyTicks = [20, 18, 16, 14, 12, 10]
 
 export const createInitialState = (gameId, seed, startLevel, startSpeed = 1) => {
   if (!GAME_IDS.includes(gameId) || !validSeed(seed) || !Number.isInteger(startLevel) || startLevel < 1 || startLevel > MAX_LEVEL ||
@@ -91,8 +93,13 @@ const runSnake = (state, game) => {
   const [x, y] = game.getNextXY()
   if (x === game.bodies[1][0] && y === game.bodies[1][1]) return false
   const ate = game.move()
-  state.score += ate ? 100 : 10
-  if (ate) state.currentLevel++
+  if (ate) {
+    state.score += 100
+    state.currentLevel++
+    return true
+  }
+  if (game.getDeath()) return false
+  state.score += 10
   return true
 }
 
@@ -102,13 +109,14 @@ const runShooting = (state, game) => {
 
 const runRacing = (state, game) => {
   game.run()
+  if (game.death) return
   state.score += 10
-  state.currentLevel = state.score / 10
+  state.currentLevel = Math.max(state.startLevel, state.score / 10)
 }
 
 const runBreakout = (state, game) => {
-  if (game.collisionDetection()) state.score += 100
   game.run()
+  if (!game.death && game.collisionDetection()) state.score += 100
 }
 
 const runTank = (state, game) => {
@@ -215,8 +223,9 @@ const advance = (state, action, copyGame) => {
     game = new Breakout(next.game)
     if (action) game.move(action)
     next.autoMs += TICK_MS
-    if (next.autoMs >= 300) {
-      next.autoMs -= 300
+    const interval = breakoutSpeeds[next.speed - 1]
+    if (next.autoMs >= interval) {
+      next.autoMs -= interval
       runBreakout(next, game)
     }
     next.terminal = game.death
@@ -235,7 +244,7 @@ const advance = (state, action, copyGame) => {
       game.draw()
     }
     next.enemyTicks++
-    if (next.enemyTicks >= 20) {
+    if (next.enemyTicks >= tankEnemyTicks[next.speed - 1]) {
       next.enemyTicks = 0
       runTank(next, game)
     }

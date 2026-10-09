@@ -49,7 +49,8 @@ function medianMillis(run, repetitions = 7) {
 
 const results = []
 for (const gameId of games) {
-  const natural = trace(gameId)
+  // Stricter Tank spawn/collision rules let the old seed survive the cap.
+  const natural = trace(gameId, gameId === 'tank' ? 3 : 4343)
   const verify = (totalTicks, events) => {
     const result = verifyReplay({ gameId, seed: natural.seed, startLevel: 1, startSpeed: 1, totalTicks, events })
     if (result.rawScore !== natural.rawScore) throw new Error(`${gameId} replay score changed`)

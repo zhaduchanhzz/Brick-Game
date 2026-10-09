@@ -49,24 +49,20 @@ class Racing {
     return [x, y]
   }
 
-  collisionDetection() {
-    return this.cars.some(car => car[1] === this.y && (car[0]>=13 && car[0]<18))
+  collisionDetection(y = this.y) {
+    return this.cars.some(car => car[1] === y && (car[0]>=13 && car[0]<18))
   }
 
-  checkMove() {
-    return !this.cars.some(car => car[0] === 13 || car[0] === 15 || car[0] === 17)
+  checkMove(nextY = this.y) {
+    return !this.collisionDetection(nextY)
   }
 
   move(type) {
-    if (!this.checkMove()) {
+    const nextY = type === 'left' ? 2 : type === 'right' ? 5 : null
+    if (nextY === null || !this.checkMove(nextY)) {
       return false
     }
-    if (type === 'left') {
-      this.y = 2
-    }
-    if (type === 'right') {
-      this.y = 5
-    }
+    this.y = nextY
     return true
   }
 

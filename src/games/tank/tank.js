@@ -17,8 +17,8 @@ class Tank {
     Object.defineProperty(this, 'rng', { value: rng })
     this.player = player || [15, 4]
     this.enemies = enemies || []
-    this.stones = stones || this.initStones()
     this.direction = direction || 'up'
+    this.stones = stones || this.initStones()
     this.death = death || false
     this.bullet = bullet || null
     this.enemiesBullets = enemiesBullets || []
@@ -28,7 +28,8 @@ class Tank {
 
   addEnemy() {
     if (this.enemies.length < 3) {
-      this.enemies = this.enemies.concat(generateEnemy({ direction:this.randomEnemyDirection(), xy: this.randomEnemyPos() }))
+      const xy = this.randomEnemyPos()
+      if (xy) this.enemies = this.enemies.concat(generateEnemy({ direction: this.randomEnemyDirection(), xy }))
     }
   }
 
@@ -45,33 +46,22 @@ class Tank {
   }
 
   randomEnemyPos() {
-    let x
-    let y
-    let flag = true
-    let attempts = 0
-    do {
-      x = Math.ceil(this.rng()*17)
-      y = Math.ceil(this.rng()*7)
-      for(let i=0; i<3; i++) {
-        let find = false
-        for(let j=0; j<3; j++){
-          if (this.matrix[i+x][j+y]) {
-            flag = true
-            find = true
-            break
-          }
-          if(i===2 && j===2 && this.matrix[i+x][j+y]===0){
-            flag = false
+    const available = []
+    for (let x = 0; x <= 17; x++) {
+      for (let y = 0; y <= 7; y++) {
+        let free = true
+        for (let row = x; row < x + 3 && free; row++) {
+          for (let col = y; col < y + 3; col++) {
+            if (this.matrix[row][col]) {
+              free = false
+              break
+            }
           }
         }
-        if(find) {
-          break
-        }
+        if (free) available.push([x, y])
       }
-      attempts++
-    } while (flag && attempts < 200)
-    if (flag) return [0, 0]
-    return [x, y]
+    }
+    return available.length ? available[Math.floor(this.rng() * available.length)] : null
   }
 
   run() {
@@ -84,22 +74,35 @@ class Tank {
   }
 
   enemiesMove() {
+    const claimed = new Set()
     this.enemies = this.enemies.map((enemy) => {
       const newEnemy = Object.assign({}, enemy)
       const nextXy = this.getNextXy(enemy.xy, enemy.direction)
-      if (this.checkMove(nextXy, enemy.direction)) {
-        newEnemy.xy = nextXy
-        newEnemy.position = initPos(newEnemy.shape, newEnemy.xy)
-      } else {
-        newEnemy.direction = this.randomEnemyDirection()
-        newEnemy.shape = enemyShape[newEnemy.direction]
-        newEnemy.position = initPos(newEnemy.shape, newEnemy.xy)
+      const canOccupy = (positions) => {
+        const own = new Set(enemy.position.map(([x, y]) => `${x},${y}`))
+        return positions.every(([x, y]) => x >= 0 && x < 20 && y >= 0 && y < 10 &&
+          (own.has(`${x},${y}`) || !this.matrix[x][y]) && !claimed.has(`${x},${y}`))
       }
+      const nextPosition = initPos(enemy.shape, nextXy)
+      if (canOccupy(nextPosition)) {
+        newEnemy.xy = nextXy
+        newEnemy.position = nextPosition
+      } else {
+        const direction = this.randomEnemyDirection()
+        const shape = enemyShape[direction]
+        const position = initPos(shape, enemy.xy)
+        if (canOccupy(position)) {
+          newEnemy.direction = direction
+          newEnemy.shape = shape
+          newEnemy.position = position
+        }
+      }
+      newEnemy.position.forEach(([x, y]) => claimed.add(`${x},${y}`))
       return newEnemy
     })
   }
   enemiesFire() {
-    const enemy = this.enemies[Math.floor(this.rng()*3)]
+    const enemy = this.enemies[Math.floor(this.rng()*this.enemies.length)]
     if(!enemy) return
     let pos
     switch(enemy.direction) {
@@ -155,23 +158,29 @@ class Tank {
   }
 
   initStones() {
-    let res = []
-    for(let i=0; i<3; i++) {
-      const x = Math.ceil(this.rng()*19)
-      const y = Math.ceil(this.rng()*9)
-      //stone can't be generated at corner
-      if((x===0 && y===0) || (x===0&&y===9)||
-         (x===19 && y===0) ||(x===19 && y===19)) {
-        continue
-      }
-      res.push([x, y])
+    const playerPositions = new Set()
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) playerPositions.add(`${this.player[0] + i},${this.player[1] + j}`)
     }
-    return res
+    const available = []
+    for (let x = 0; x < 20; x++) {
+      for (let y = 0; y < 10; y++) {
+        const corner = (x === 0 || x === 19) && (y === 0 || y === 9)
+        if (!corner && !playerPositions.has(`${x},${y}`)) available.push([x, y])
+      }
+    }
+    const stones = []
+    for (let i = 0; i < 3; i++) {
+      stones.push(available.splice(Math.floor(this.rng() * available.length), 1)[0])
+    }
+    return stones
   }
 
   draw() {
     let matrix = copyData(blankMatrix)
 
+    this.enemiesBullets = this.enemiesBullets.filter(bullet =>
+      !this.stones.some(stone => stone[0] === bullet.pos[0] && stone[1] === bullet.pos[1]))
     this.shootingDetection()
     this.shootedPlayerDetection()
     //draw stone
@@ -363,7 +372,10 @@ class Tank {
 
   move(type) {
     if (this.direction !== type) {
-      this.direction = type
+      const occupied = initPos(playerShape[type], this.player)
+      const blocked = occupied.some(([x, y]) => this.stones.some(stone => stone[0] === x && stone[1] === y) ||
+        this.enemies.some(enemy => enemy.position.some(pos => pos[0] === x && pos[1] === y)))
+      if (!blocked) this.direction = type
     } else {
       let nextXy = this.getNextXy(this.player, type)
       if (this.checkMove(nextXy, type)) {

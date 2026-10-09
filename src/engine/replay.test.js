@@ -82,6 +82,89 @@ describe('shared deterministic game engine', () => {
     expect(step(createInitialState('tetris', 7, 1, 6)).speed).toBe(6)
   })
 
+  test('Snake does not award movement points for a fatal wall collision', () => {
+    const start = createInitialState('snake', 7, 1)
+    start.game = { ...start.game, head: [0, 0], bodies: [[0, 0], [0, 1], [0, 2]],
+      food: [5, 5], direction: 'up', death: false }
+    start.autoMs = 950
+    const after = step(start)
+    expect(after.terminal).toBe(true)
+    expect(after.score).toBe(0)
+  })
+
+  test('Snake awards the final food before ending on a full board', () => {
+    const start = createInitialState('snake', 7, 1)
+    const bodies = [[0, 0]]
+    for (let x = 0; x < 20; x++) {
+      for (let y = 0; y < 10; y++) {
+        if ((x !== 0 || y !== 0) && (x !== 0 || y !== 1)) bodies.push([x, y])
+      }
+    }
+    start.game = { ...start.game, head: [0, 0], bodies, food: [0, 1], direction: 'right', death: false }
+    start.autoMs = 950
+    const after = step(start)
+    expect(after.terminal).toBe(true)
+    expect(after.score).toBe(100)
+  })
+
+  test('Breakout scores a brick on arrival and honors selected speed', () => {
+    const start = createInitialState('breakout', 7, 1)
+    start.game = { ...start.game, x: 4, y: 0, dx: -1, dy: 1, bricks: [[3, 1], [0, 9]] }
+    start.autoMs = 250
+    const after = step(start)
+    expect(after.score).toBe(100)
+    expect(after.game.bricks).toEqual([[0, 9]])
+    expect([after.game.x, after.game.y, after.game.dx]).toEqual([3, 1, 1])
+
+    let slow = createInitialState('breakout', 7, 1, 1)
+    let fast = createInitialState('breakout', 7, 1, 6)
+    for (let i = 0; i < 4; i++) {
+      slow = step(slow)
+      fast = step(fast)
+    }
+    expect([slow.game.x, slow.game.y]).toEqual([18, 4])
+    expect([fast.game.x, fast.game.y]).not.toEqual([18, 4])
+  })
+
+  test.each([1, 6])('Breakout clears the board without a dead corridor at speed %i', speed => {
+    let state = createInitialState('breakout', 1, 1, speed)
+    while (!state.terminal && state.tick < 6000) {
+      const ball = state.game
+      const target = Math.max(0, Math.min(7, ball.y - 1))
+      const action = ball.paddleY < target ? 'right' :
+        ball.paddleY > target ? 'left' : null
+      state = stepReplay(state, action)
+    }
+    expect(state.terminal).toBe(true)
+    expect(state.score).toBe(4000)
+    expect(state.tick).toBeLessThan(6000)
+  })
+
+  test('Racing preserves chosen level and Tank enemy cadence responds to speed', () => {
+    let racing = createInitialState('racing', 7, 5, 6)
+    for (let i = 0; i < 4; i++) racing = step(racing)
+    expect(racing.score).toBe(10)
+    expect(racing.currentLevel).toBe(5)
+
+    let slow = createInitialState('tank', 7, 1, 1)
+    let fast = createInitialState('tank', 7, 1, 6)
+    for (let i = 0; i < 10; i++) {
+      slow = step(slow)
+      fast = step(fast)
+    }
+    expect(slow.enemyTicks).toBe(10)
+    expect(fast.enemyTicks).toBe(0)
+  })
+
+  test('Racing does not award distance points on the fatal collision tick', () => {
+    const start = createInitialState('racing', 7, 1)
+    start.game = { ...start.game, y: 2, cars: [[12, 2]], death: false }
+    start.autoMs = 950
+    const after = step(start)
+    expect(after.terminal).toBe(true)
+    expect(after.score).toBe(0)
+  })
+
   test.each(GAME_IDS)('%s stays deterministic across seeds, levels, and input timing', gameId => {
     for (const seed of [1, 89, 0xffffffff]) {
       for (const level of [1, 7]) {
@@ -123,7 +206,8 @@ describe('shared deterministic game engine', () => {
   })
 
   test.each(GAME_IDS)('%s verifies an exact 12k-tick pause-padded terminal trace', gameId => {
-    let state = createInitialState(gameId, 4343, 1, 6)
+    const seed = gameId === 'tank' ? 3 : 4343
+    let state = createInitialState(gameId, seed, 1, 6)
     const events = []
     while (!state.terminal && state.tick < MAX_TICKS) {
       const action = gameId === 'tetris' && state.tick % 2 === 0 ? 'down' :
@@ -136,13 +220,14 @@ describe('shared deterministic game engine', () => {
     expect(shift).toBeGreaterThan(1)
     const padded = [{ tick: 1, action: 'pause' }, { tick: shift, action: 'resume' },
       ...events.map(event => ({ tick: event.tick + shift, action: event.action }))]
-    const session = { gameId, seed: 4343, startLevel: 1, startSpeed: 6, totalTicks: MAX_TICKS }
+    const session = { gameId, seed, startLevel: 1, startSpeed: 6, totalTicks: MAX_TICKS }
     expect(verifyReplay({ ...session, events: padded })).toEqual({ terminal: true, rawScore: state.score })
     expect(() => verifyReplay({ ...session, events: [padded[0], { tick: 2, action: 'left' }, ...padded.slice(1)] })).toThrow()
   })
 
   test.each(['tetris', 'shooting', 'racing', 'breakout', 'tank'])('%s terminal trace replays exactly', gameId => {
-    let state = createInitialState(gameId, 4343, 1, 6)
+    const seed = gameId === 'tank' ? 3 : 4343
+    let state = createInitialState(gameId, seed, 1, 6)
     const events = []
     while (!state.terminal && state.tick < 6000) {
       const action = gameId === 'tetris' && state.tick % 2 === 0 ? 'down' : null
@@ -150,7 +235,7 @@ describe('shared deterministic game engine', () => {
       if (action) events.push({ tick: state.tick, action })
     }
     expect(state.terminal).toBe(true)
-    expect(verifyReplay({ gameId, seed: 4343, startLevel: 1, startSpeed: 6, totalTicks: state.tick, events })).toEqual({
+    expect(verifyReplay({ gameId, seed, startLevel: 1, startSpeed: 6, totalTicks: state.tick, events })).toEqual({
       terminal: true, rawScore: state.score
     })
   })

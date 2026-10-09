@@ -37,13 +37,14 @@ const initLines = (rng) => {
 }
 
 class Tetris {
-  constructor({ levels, matrix, next, score, shape, xy }) {
+  constructor({ levels, matrix, next, score, shape, xy, toppedOut = false }) {
     this.matrix = this.copyData(matrix)
     this.xy = this.copyData(xy)
     this.shape = this.copyData(shape)
     this.next = next
     this.score = score || 0
     this.levels = levels
+    this.toppedOut = toppedOut
   }
 
   copyData(data) {
@@ -108,7 +109,12 @@ class Tetris {
   }
 
   isDead() {
-    return this.matrix.every(line => line.some(n => !!n))
+    // Sparse blocks in every row need not block the next piece.
+    return this.toppedOut || (
+      this.xy[0] === originXY[0] &&
+      this.xy[1] === originXY[1] &&
+      !this.checkMove('down')
+    )
   }
 
   canDown() {
@@ -192,6 +198,9 @@ class Tetris {
   draw() {
     for(let i=0; i<this.shape.length; i++) {
       for (let j=0; j<this.shape[0].length; j++) {
+        if (this.shape[i][j] && i + this.xy[0] < 0) {
+          this.toppedOut = true
+        }
         //绘制新位置
         if (i+this.xy[0] >= 0 && i+this.xy[0] < 20 && j+this.xy[1] >= 0 && j+this.xy[1] < 10) {
           if (this.shape[i][j]) {
@@ -249,7 +258,8 @@ class Tetris {
       next: this.next,
       shape: this.shape,
       score: this.score,
-      levels: this.levels
+      levels: this.levels,
+      toppedOut: this.toppedOut
     }
   }
 
