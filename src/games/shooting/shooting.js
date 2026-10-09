@@ -4,7 +4,8 @@ export const defaultSider = [1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 
 
 export default class Shooting {
 
-  constructor({ x, stones, sider, death, fire }) {
+  constructor({ x, stones, sider, death, fire, rng = Math.random }) {
+    Object.defineProperty(this, 'rng', { value: rng })
     this.x = x || 5
     this.stones = stones || this.initStones()
     // this.stones = stones || [[0,3], [2, 3], [1, 5], [15, 4], [16, 3], ]
@@ -19,12 +20,12 @@ export default class Shooting {
     ]
   }
   randomStone() {
-    const num = Math.floor(Math.random()*2)
+    const num = Math.floor(this.rng()*2)
     const res = []
     for (let i=0; i<num; i++) {
       res.push([
         0,
-        Math.floor(Math.random()*6)+2
+        Math.floor(this.rng()*6)+2
       ])
     }
     return res
@@ -155,6 +156,6 @@ export const randomXY = () => {
   ]
 }
 
-export const createNewShooting = () => {
-  return new Shooting({ x: 5 })
+export const createNewShooting = (rng = Math.random) => {
+  return new Shooting({ x: 5, rng })
 }

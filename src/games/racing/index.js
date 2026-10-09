@@ -4,7 +4,8 @@ export const randomCarIndex = [-8, -9, -10, -11]
 export const defaultSider = [1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0]
 
 class Racing {
-  constructor({ y, cars, sider, death }) {
+  constructor({ y, cars, sider, death, rng = Math.random }) {
+    Object.defineProperty(this, 'rng', { value: rng })
     this.x = 15 //固定行
     this.y = y || 2
     this.cars = cars || [[-10, 2]]
@@ -42,9 +43,9 @@ class Racing {
   }
 
   randomCar() {
-    const idx = Math.floor((Math.random()*randomCarIndex.length))
+    const idx = Math.floor((this.rng()*randomCarIndex.length))
     const x = randomCarIndex[idx]
-    const y = Math.random() > 0.5 ? 2 : 5
+    const y = this.rng() > 0.5 ? 2 : 5
     return [x, y]
   }
 
@@ -75,8 +76,8 @@ class Racing {
   }
 }
 
-export const createNewRacing = () => {
-  return new Racing({})
+export const createNewRacing = (rng = Math.random) => {
+  return new Racing({ rng })
 }
 
 export default Racing

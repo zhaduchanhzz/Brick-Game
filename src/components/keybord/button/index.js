@@ -1,15 +1,15 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import cn from 'classnames'
 import style from './index.module.less'
 import { transform } from '../../../utils/const'
 import control from '../../../control'
 import { shallowEqual, useSelector } from 'react-redux'
-import { isMobile } from '../../../utils/helps'
 import { initGameData } from '../../../utils/games'
 import PropTypes from 'prop-types'
 
 const Button = ({ color, size, top, left, label, position, arrow, type }) => {
   const [active, setActive] = useState(false)
+  const suppressClick = useRef(false)
   const pause = useSelector(state => state.pause, shallowEqual)
   const game = useSelector(state => state.game, shallowEqual)
 
@@ -22,7 +22,7 @@ const Button = ({ color, size, top, left, label, position, arrow, type }) => {
         control[initGameData[game].name][type]()
       }
     },
-    [pause, game.name]
+    [pause, game, type]
   )
 
   const memoHandleUp = useCallback(
@@ -33,56 +33,43 @@ const Button = ({ color, size, top, left, label, position, arrow, type }) => {
     []
   )
 
-  let rendered = null
-  if(isMobile()) {
-    rendered = (
-      <div
-        className={cn({
-          [style.button]: true,
-          [style[color]]: true,
-          [style[size]]: true,
-        })}
-        style={{ top, left }}
-        onTouchStart={memoHandleDown}
-        onTouchEnd={memoHandleUp}
-      >
-        <i className={cn({ [style.active]: active })}/>
-        {size === 's1' && (
-          <em
-            style={{
-              [transform]: `${arrow} scale(1,2)`,
-            }}
-          />
-        )}
-        <span className={cn({ [style.position]: position })}>{label}</span>
-      </div>
-    )
-  } else {
-    rendered = (
-      <div
-        className={cn({
-          [style.button]: true,
-          [style[color]]: true,
-          [style[size]]: true,
-        })}
-        style={{ top, left }}
-        onMouseDown={memoHandleDown}
-        onMouseUp={memoHandleUp}
-      >
-        <i className={cn({ [style.active]: active })}/>
-        {size === 's1' && (
-          <em
-            style={{
-              [transform]: `${arrow} scale(1,2)`,
-            }}
-          />
-        )}
-        <span className={cn({ [style.position]: position })}>{label}</span>
-      </div>
-    )
-  }
-
-  return rendered
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className={cn({ [style.button]: true, [style[color]]: true, [style[size]]: true })}
+      style={{ top, left }}
+      onPointerDown={event => {
+        if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId)
+        memoHandleDown()
+      }}
+      onPointerUp={memoHandleUp}
+      onPointerCancel={memoHandleUp}
+      onLostPointerCapture={memoHandleUp}
+      onKeyDown={event => {
+        if ((event.key === 'Enter' || event.key === ' ') && !event.repeat) {
+          event.preventDefault()
+          suppressClick.current = true
+          memoHandleDown()
+        }
+      }}
+      onKeyUp={event => {
+        if (event.key === 'Enter' || event.key === ' ') memoHandleUp()
+      }}
+      onClick={event => {
+        if (event.detail === 0 && !suppressClick.current) {
+          memoHandleDown()
+          memoHandleUp()
+        }
+        suppressClick.current = false
+      }}
+      onBlur={memoHandleUp}
+    >
+      <i className={cn({ [style.active]: active })} aria-hidden="true" />
+      {size === 's1' && <em aria-hidden="true" style={{ [transform]: `${arrow} scale(1,2)` }} />}
+      <span className={cn({ [style.position]: position })}>{label}</span>
+    </button>
+  )
 }
 
 Button.propTypes = {

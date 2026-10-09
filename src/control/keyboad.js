@@ -18,9 +18,13 @@ let keydownActive
 const boardKeys = Object.keys(keyboard).map(e => parseInt(e, 10))
 
 const keyDown = (e) => {
-  if (e.metaKey === true || boardKeys.indexOf(e.keyCode) === -1) {
+  if (e.target && e.target.closest && e.target.closest('button, input, select, textarea, summary, a, [contenteditable]')) {
     return
   }
+  if (e.metaKey || e.ctrlKey || e.altKey || boardKeys.indexOf(e.keyCode) === -1) {
+    return
+  }
+  e.preventDefault()
   const type = keyboard[e.keyCode]
   if (type === keydownActive) {
     return

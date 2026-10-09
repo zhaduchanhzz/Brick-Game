@@ -9,14 +9,22 @@
 
 .button {
     position: absolute;
+    display: block;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    font-family: inherit;
     text-align: center;
-    color: #111;
-    position: absolute;
+    color: var(--label-color, #111);
     white-space: nowrap;
     line-height: 1.6;
+    cursor: pointer;
+    touch-action: none;
+
+    &:focus-visible { outline: 4px solid var(--lcd-pixel-color, #111); outline-offset: 5px; border-radius: 16px; }
 
     &.s2 {
-        font-size: 12px;
+        font-size: 16px;
     }
 
     span.position {
@@ -28,8 +36,14 @@
     i {
         display: block;
         position: relative;
-        border: 1px solid #000;
+        border: 2px solid rgba(0, 0, 0, .72);
         border-radius: 50%;
+        background-image:
+            url('../../../resource/image/plastic-wear-overlay-v1.png'),
+            radial-gradient(circle at 31% 21%, rgba(255, 255, 255, .28), transparent 46%),
+            linear-gradient(146deg, rgba(255, 255, 255, .09), transparent 52%, rgba(0, 0, 0, .13));
+        background-size: 100% 100%;
+        background-repeat: no-repeat;
 
         &:before,
         &:after {
@@ -58,23 +72,20 @@
             }
         }
 
-        box-shadow: 0 3px 3px rgba(0, 0, 0, .2);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, .2), 0 3px 3px rgba(0, 0, 0, .28), 0 6px 9px rgba(0, 0, 0, .12);
 
     }
 
     &.blue i {
-        background: blue;
-        .background(#6e77ef, #4652f3);
+        background-color: var(--button-secondary-color, #4652f3);
     }
 
     &.green i {
-        background: green;
-        .background(#4bc441, #0ec400);
+        background-color: var(--button-primary-color, #0ec400);
     }
 
     &.red i {
-        background: red;
-        .background(#dc3333, #de0000);
+        background-color: var(--button-primary-color, #de0000);
     }
 
     &.s0 i {
@@ -92,8 +103,8 @@
     }
 
     &.s2 i {
-        width: 52px;
-        height: 52px;
+        width: 80px;
+        height: 80px;
 
         &:before,
         &:after {

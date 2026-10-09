@@ -13,7 +13,8 @@ const playerShape = { up:[[0, 1, 0],
   [1, 1, 0]] }
 
 class Tank {
-  constructor({ matrix, enemiesBullets, player, enemies, stones, death, direction, bullet, score }) {
+  constructor({ matrix, enemiesBullets, player, enemies, stones, death, direction, bullet, score, rng = Math.random }) {
+    Object.defineProperty(this, 'rng', { value: rng })
     this.player = player || [15, 4]
     this.enemies = enemies || []
     this.stones = stones || this.initStones()
@@ -32,7 +33,7 @@ class Tank {
   }
 
   randomEnemyDirection(){
-    const idx = Math.floor(Math.random()*4)
+    const idx = Math.floor(this.rng()*4)
     let res
     switch(idx) {
     case 0: res = 'up';break
@@ -47,9 +48,10 @@ class Tank {
     let x
     let y
     let flag = true
+    let attempts = 0
     do {
-      x = Math.ceil(Math.random()*17)
-      y = Math.ceil(Math.random()*7)
+      x = Math.ceil(this.rng()*17)
+      y = Math.ceil(this.rng()*7)
       for(let i=0; i<3; i++) {
         let find = false
         for(let j=0; j<3; j++){
@@ -66,12 +68,14 @@ class Tank {
           break
         }
       }
-    } while (flag)
+      attempts++
+    } while (flag && attempts < 200)
+    if (flag) return [0, 0]
     return [x, y]
   }
 
   run() {
-    const add = Math.random() > 0.6
+    const add = this.rng() > 0.6
     if (add) {
       this.addEnemy()
     }
@@ -95,8 +99,7 @@ class Tank {
     })
   }
   enemiesFire() {
-    const idx = Math.floor(Math.random()*3)
-    const enemy = this.enemies[Math.floor(Math.random()*3)]
+    const enemy = this.enemies[Math.floor(this.rng()*3)]
     if(!enemy) return
     let pos
     switch(enemy.direction) {
@@ -154,8 +157,8 @@ class Tank {
   initStones() {
     let res = []
     for(let i=0; i<3; i++) {
-      const x = Math.ceil(Math.random()*19)
-      const y = Math.ceil(Math.random()*9)
+      const x = Math.ceil(this.rng()*19)
+      const y = Math.ceil(this.rng()*9)
       //stone can't be generated at corner
       if((x===0 && y===0) || (x===0&&y===9)||
          (x===19 && y===0) ||(x===19 && y===19)) {
@@ -387,8 +390,8 @@ class Tank {
   }
 }
 
-export const createNewTank = () => {
-  return new Tank({})
+export const createNewTank = (rng = Math.random) => {
+  return new Tank({ rng })
 }
 
 export default Tank

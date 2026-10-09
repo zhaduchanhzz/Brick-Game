@@ -1,0 +1,161 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  border: 1px solid rgba(242, 238, 205, .66);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #41566b, #192d40 72%);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .21), 0 4px 10px rgba(0, 0, 0, .22);
+  color: #fff8e8;
+  font: 700 13px "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+  letter-spacing: .02em;
+  cursor: pointer;
+}
+.trigger:hover { background: linear-gradient(145deg, #526b81, #263d52 72%); }
+.triggerDevice { display: block; width: 27px; height: 29px; filter: drop-shadow(0 1px 1px #0008); }
+.triggerDeviceShell { fill: var(--case-color, #efcc19); stroke: #fff9e9; stroke-width: 1.5; }
+.triggerDeviceScreen { fill: var(--lcd-color, #9ead86); stroke: #253326; stroke-width: 1.5; }
+.triggerDevicePixels { fill: var(--lcd-pixel-color, #152419); }
+.triggerDeviceDpad { fill: none; stroke: #18262d; stroke-width: 2; stroke-linecap: round; }
+.triggerDeviceButton { fill: var(--button-primary-color, #d93332); stroke: #263341; stroke-width: .8; }
+
+.backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(9, 14, 20, .78);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.dialog {
+  width: min(760px, 100%);
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  border: 1px solid #b1aa8b;
+  border-radius: 19px;
+  padding: clamp(18px, 3vw, 30px);
+  background: radial-gradient(circle at 0 0, rgba(253, 224, 161, .16), transparent 40%), linear-gradient(160deg, #253748, #142534 68%);
+  box-shadow: 0 24px 85px rgba(0, 0, 0, .58), inset 0 1px rgba(255, 255, 255, .15);
+  color: #f9f4e7;
+  overscroll-behavior: contain;
+}
+.dialogHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+  h2 { margin: 0 0 7px; font-size: clamp(23px, 4vw, 31px); line-height: 1.1; }
+  p:last-child { margin: 0; color: #d5e1e8; font-size: 13px; line-height: 1.5; }
+}
+.eyebrow { margin: 0 0 7px; color: #f6ce79; font-size: 10px; font-weight: 800; letter-spacing: .23em; }
+.close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #7895a5;
+  border-radius: 9px;
+  background: #30495b;
+  color: #fff;
+  font: 400 26px/1 Arial, sans-serif;
+  cursor: pointer;
+}
+.close:hover { background: #476276; }
+.editor fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
+.editor legend { margin-bottom: 12px; padding: 0; font-size: 14px; font-weight: 800; letter-spacing: .03em; }
+.presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.preset {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 78px;
+  padding: 10px 30px 10px 11px;
+  border: 1px solid #6e8490;
+  border-radius: 12px;
+  background: linear-gradient(140deg, #354a5b, #253b4b);
+  color: #f8f7f1;
+  font: 700 12px/1.3 "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.preset:hover { border-color: #f6d286; background: #3c5364; }
+.preset[aria-pressed="true"] { border-color: #fbd778; box-shadow: inset 0 0 0 1px #fbd778, 0 0 0 2px rgba(251, 215, 120, .15); }
+.presetMachine {
+  position: relative;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 56px;
+  border: 2px solid var(--preview-border);
+  border-radius: 7px 7px 11px 11px;
+  background:
+    url('../../resource/image/plastic-wear-overlay-v1.png'),
+    radial-gradient(circle at 28% 20%, #fff5, transparent 43%),
+    var(--preview-case);
+  background-size: 100% 100%;
+  box-shadow: 2px 3px 5px #0005, inset -2px -2px 2px #0002;
+}
+.presetScreen { position: absolute; top: 8px; left: 5px; width: 24px; height: 25px; border: 3px solid #0004; border-radius: 2px; background: var(--preview-lcd); box-shadow: inset 1px 2px 2px #0005; }
+.presetButton { position: absolute; bottom: 7px; right: 7px; width: 9px; height: 9px; border: 1px solid #0006; border-radius: 50%; background: var(--preview-button); box-shadow: 1px 2px 2px #0006; }
+.presetName { min-width: 0; overflow-wrap: anywhere; }
+.presetSelected { position: absolute; top: 7px; right: 9px; display: none; color: #ffde88; font-size: 17px; }
+.preset[aria-pressed="true"] .presetSelected { display: block; }
+.customFieldset { margin-top: 24px !important; }
+.customFieldset > p { margin: -4px 0 16px; color: #c9d7df; font-size: 12px; line-height: 1.5; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.colorField {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 5px 8px 5px 11px;
+  border: 1px solid rgba(185, 208, 217, .25);
+  border-radius: 8px;
+  background: rgba(3, 12, 19, .19);
+  color: #e7edf0;
+  font-size: 12px;
+}
+.colorValue { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; color: #c5d1d8; font: 11px/1 Consolas, monospace; }
+.colorValue input { width: 40px; height: 33px; padding: 2px; border: 1px solid #b7cbd1; border-radius: 5px; background: transparent; cursor: pointer; }
+.contrastWarning { margin-top: 13px; border: 1px solid #d7b560; border-radius: 8px; padding: 10px 12px; background: #49391f; color: #fff2cd; font-size: 12px; line-height: 1.4; }
+.contrastWarning p { margin: 0 0 5px; }
+.contrastWarning p:last-child { margin: 0; }
+.reset {
+  min-height: 42px;
+  margin-top: 21px;
+  padding: 0 18px;
+  border: 1px solid #b5c9cf;
+  border-radius: 9px;
+  background: #3b5363;
+  color: #fff;
+  font: 700 12px "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+  cursor: pointer;
+}
+.reset:hover { background: #506a7a; }
+.trigger:focus-visible, .dialog button:focus-visible, .dialog input:focus-visible { outline: 3px solid #ffdc7d; outline-offset: 3px; }
+
+@media (max-width: 620px) {
+  .backdrop { align-items: flex-end; padding: 0; }
+  .dialog { width: 100%; max-height: 92dvh; padding: 20px 17px 24px; border-radius: 18px 18px 0 0; }
+  .presets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fields { grid-template-columns: 1fr; }
+}
+@media (max-width: 360px) {
+  .preset { gap: 8px; padding-right: 24px; }
+  .presetMachine { flex-basis: 30px; transform: scale(.8); transform-origin: left center; }
+}

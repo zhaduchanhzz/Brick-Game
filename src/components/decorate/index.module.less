@@ -9,6 +9,8 @@
     margin: 0;
     padding: 0;
     font-size: 30px;
+    color: var(--label-color, #111);
+    letter-spacing: 2px;
   }
   .topBorder{
     position:absolute;
@@ -45,6 +47,7 @@
       float: left;
     }
     p {
+      margin: 0;
       height: 22px;
       clear: both;
     }
@@ -52,5 +55,9 @@
       right: auto;
       left: -70px;
     }
+  }
+  &.retro {
+    h1 { top: 6px; font-size: 24px; font-weight: 800; letter-spacing: 2px; }
+    .topBorder { display: none; }
   }
 }

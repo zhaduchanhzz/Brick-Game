@@ -1,12 +1,22 @@
 .music {
-    width: 25px;
-    height: 21px;
-    background-position: -175px -75px;
+  position: absolute;
+  top: 0;
+  left: -12px;
+  width: 25px;
+  height: 24px;
+  color: var(--lcd-pixel-color, #152419);
+  font: 700 26px/24px Georgia, serif;
+  text-align: center;
+}
+.off {
+  opacity: .38;
+  &:after {
+    content: '';
     position: absolute;
-    top: 2px;
-    left: -12px;
-
-    &.c {
-        background-position: -150px -75px;
-    }
+    top: 11px;
+    left: 1px;
+    width: 25px;
+    border-top: 2px solid currentColor;
+    transform: rotate(-42deg);
+  }
 }

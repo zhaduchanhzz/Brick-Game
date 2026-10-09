@@ -1,0 +1,811 @@
+import { spawn } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+const BASE_URL = process.env.BRICK_SMOKE_URL || 'http://127.0.0.1:8787'
+const GAME_IDS = ['tank', 'tetris', 'snake', 'shooting', 'racing', 'breakout']
+const ROOT = process.cwd()
+const OUTPUT = path.join(ROOT, '.wrangler', 'qa')
+const BROWSER_CANDIDATES = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+]
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+const fail = (message) => { throw new Error(message) }
+
+async function until(read, predicate, label, timeoutMs = 12000) {
+  const deadline = Date.now() + timeoutMs
+  let last
+  do {
+    try {
+      last = await read()
+      if (predicate(last)) return last
+    } catch (error) {
+      last = error.message
+    }
+    await sleep(100)
+  } while (Date.now() < deadline)
+  fail(`Timed out waiting for ${label}; last value: ${JSON.stringify(last)}`)
+}
+
+class Cdp {
+  constructor(socket) {
+    this.socket = socket
+    this.nextId = 1
+    this.pending = new Map()
+    this.handlers = new Map()
+    socket.addEventListener('message', event => {
+      let message
+      try { message = JSON.parse(String(event.data)) } catch { return }
+      if (message.id) {
+        const pending = this.pending.get(message.id)
+        if (!pending) return
+        this.pending.delete(message.id)
+        clearTimeout(pending.timer)
+        if (message.error) pending.reject(new Error(`${pending.method}: ${message.error.message}`))
+        else pending.resolve(message.result || {})
+      } else if (message.method) {
+        for (const handler of this.handlers.get(message.method) || []) handler(message.params || {})
+      }
+    })
+  }
+
+  on(method, handler) {
+    const handlers = this.handlers.get(method) || []
+    handlers.push(handler)
+    this.handlers.set(method, handlers)
+  }
+
+  send(method, params = {}) {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`${method}: CDP response timed out`))
+      }, 12000)
+      this.pending.set(id, { method, resolve, reject, timer })
+      this.socket.send(JSON.stringify({ id, method, params }))
+    })
+  }
+
+  async eval(expression) {
+    const result = await this.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+    if (result.exceptionDetails) fail(`Browser expression failed: ${result.exceptionDetails.text}`)
+    return result.result?.value
+  }
+}
+
+async function connect(url) {
+  const socket = new WebSocket(url)
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('CDP WebSocket connection timed out')), 10000)
+    socket.addEventListener('open', () => { clearTimeout(timer); resolve() }, { once: true })
+    socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('CDP WebSocket connection failed')) }, { once: true })
+  })
+  return new Cdp(socket)
+}
+
+async function clickButton(cdp, label) {
+  const point = await cdp.eval(`(() => {
+    const button = document.querySelector('button[aria-label=${JSON.stringify(label)}]')
+    if (!button) return null
+    const rect = button.getBoundingClientRect()
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    return { x, y, disabled: button.disabled,
+      inViewport: x >= 0 && x < innerWidth && y >= 0 && y < innerHeight }
+  })()`)
+  if (!point || point.disabled) fail(`Machine button is missing or disabled: ${label}`)
+  if (!point.inViewport) fail(`Machine button center is outside the viewport: ${label} ${JSON.stringify(point)}`)
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+}
+
+async function gameLabel(cdp) {
+  return cdp.eval(`document.querySelector('[class*="gameTitle"] strong')?.textContent?.trim().toLowerCase() || null`)
+}
+
+async function selectRetro(cdp) {
+  await clickButton(cdp, 'Theme colors')
+  await until(() => cdp.eval(`document.querySelector('[role="dialog"]')?.querySelector('button[aria-pressed]') !== null`),
+    Boolean, 'theme modal presets')
+  const changed = await cdp.eval(`(() => {
+    const card = [...document.querySelectorAll('[role="dialog"] button[aria-pressed]')]
+      .find(button => button.textContent.includes('Retro Cream E-23'))
+    if (!card) return false
+    card.click()
+    return true
+  })()`)
+  if (!changed) fail('Retro Cream preset card is missing')
+  await until(() => cdp.eval(`(() => {
+    const device = document.querySelector('main [class*="GameDevice_device"]')
+    const card = [...document.querySelectorAll('[role="dialog"] button[aria-pressed]')]
+      .find(button => button.textContent.includes('Retro Cream E-23'))
+    return card?.getAttribute('aria-pressed') === 'true' &&
+      device?.className.includes('GameDevice_retro') &&
+      document.querySelector('main [class*="GameDevice_modelMark"]')?.textContent?.includes('E-23')
+  })()`), Boolean, 'Retro E-23 shape')
+  await clickButton(cdp, 'Close theme colors')
+  await until(() => cdp.eval(`document.querySelector('[role="dialog"]') === null`), Boolean, 'theme modal close')
+}
+
+async function checkViewportFit(cdp, width, height, mobile) {
+  const rect = await cdp.eval(`(() => {
+    const device = document.querySelector('main [class*="GameDevice_device"]')
+    const box = device?.getBoundingClientRect()
+    const sidebar = document.querySelector('[class*="desktopLeaderboard"]')
+    return box && {
+      left: box.left, top: box.top, right: box.right, bottom: box.bottom,
+      sidebarVisible: sidebar && getComputedStyle(sidebar).display !== 'none',
+      headerVisible: getComputedStyle(document.querySelector('header')).display !== 'none'
+    }
+  })()`)
+  if (!rect) fail(`${width}px game device is missing`)
+  if (rect.left < -1 || rect.right > width + 1 || rect.top < -1 || rect.bottom > height + 1) {
+    fail(`${width}x${height} machine does not fit one viewport: ${JSON.stringify(rect)}`)
+  }
+  if (Boolean(rect.sidebarVisible) === mobile) fail(`${width}px sidebar visibility is wrong`)
+  return rect
+}
+
+async function checkDesktopComposition(cdp, width, height) {
+  const layout = await cdp.eval(`(() => {
+    const title = document.querySelector('[class*="brand"] h1')
+    const device = document.querySelector('main [class*="GameDevice_device"]')
+    const board = document.querySelector('[class*="desktopLeaderboard"] aside')
+    const boardFrame = document.querySelector('[class*="desktopLeaderboard"]')
+    const bounds = element => {
+      if (!element) return null
+      const rect = element.getBoundingClientRect()
+      const computed = getComputedStyle(element)
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+        width: rect.width, height: rect.height,
+        visible: computed.display !== 'none' && computed.visibility !== 'hidden' && rect.width > 0 && rect.height > 0 }
+    }
+    return { title: bounds(title), device: bounds(device), board: bounds(board), boardFrame: bounds(boardFrame) }
+  })()`)
+  if (!layout.title?.visible || !layout.device?.visible || !layout.board?.visible || !layout.boardFrame?.visible) {
+    fail(`${width}x${height} desktop title, machine, or leaderboard is hidden: ${JSON.stringify(layout)}`)
+  }
+  const gap = width <= 1100 ? 8 : 12
+  if (layout.title.right + gap > layout.device.left || layout.device.right + gap > layout.board.left) {
+    fail(`${width}x${height} desktop title/machine/leaderboard order or spacing is wrong: ${JSON.stringify(layout)}`)
+  }
+  const machineCenter = (layout.device.left + layout.device.right) / 2
+  if (Math.abs(machineCenter - width / 2) > Math.max(28, width * .05)) {
+    fail(`${width}x${height} machine is not centered in the viewport: ${JSON.stringify(layout)}`)
+  }
+  if (layout.title.left < -1 || layout.title.top < -1 || layout.title.bottom > height + 1 ||
+    layout.boardFrame.right > width + 1 || layout.boardFrame.top < -1 || layout.boardFrame.bottom > height + 1) {
+    fail(`${width}x${height} desktop side content exceeds the viewport: ${JSON.stringify(layout)}`)
+  }
+  return layout
+}
+
+async function checkMobileComposition(cdp, width, height) {
+  const layout = await cdp.eval(`(() => {
+    const bounds = element => {
+      if (!element) return null
+      const rect = element.getBoundingClientRect()
+      const computed = getComputedStyle(element)
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+        width: rect.width, height: rect.height,
+        visible: computed.display !== 'none' && computed.visibility !== 'hidden' && rect.width > 0 && rect.height > 0 }
+    }
+    return {
+      header: bounds(document.querySelector('header')),
+      title: bounds(document.querySelector('[class*="brand"] h1')),
+      gameTitle: bounds(document.querySelector('[class*="gameTitle"]')),
+      board: bounds(document.querySelector('[class*="desktopLeaderboard"]')),
+      device: (() => {
+        const element = document.querySelector('main [class*="GameDevice_device"]')
+        if (!element) return null
+        const box = bounds(element)
+        const scale = box.width / element.offsetWidth
+        const style = getComputedStyle(element)
+        return { ...box, innerLeft: box.left + parseFloat(style.borderLeftWidth) * scale,
+          innerRight: box.right - parseFloat(style.borderRightWidth) * scale,
+          scrollLeft: element.scrollLeft, scrollTop: element.scrollTop,
+          scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }
+      })(),
+      lcdSurround: (() => {
+        const element = document.querySelector('main [class*="GameDevice_rect"]')
+        return element && { ...bounds(element), marginLeft: getComputedStyle(element).marginLeft,
+          marginRight: getComputedStyle(element).marginRight }
+      })(),
+      screen: bounds(document.querySelector('main [class*="GameDevice_screen"]')),
+      screenIntrinsic: (() => {
+        const element = document.querySelector('main [class*="GameDevice_screen"]')
+        return element && { width: element.offsetWidth, height: element.offsetHeight }
+      })(),
+      keyboard: (() => {
+        const element = document.querySelector('main [class*="keyboard"]')
+        return element && { ...bounds(element), transform: getComputedStyle(element).transform,
+          intrinsicWidth: element.offsetWidth, intrinsicHeight: element.offsetHeight,
+          offsetLeft: element.offsetLeft,
+          marginLeft: getComputedStyle(element).marginLeft, marginRight: getComputedStyle(element).marginRight }
+      })(),
+      controlsDock: bounds(document.querySelector('main [class*="GameDevice_controlsDock"]')),
+      scrollX: window.scrollX,
+      controls: ['QUICK', 'DOWN', 'LEFT', 'RIGHT', 'ROTATE DIRECTION', 'START(P)',
+        'SOUND(S)', 'RESET(R)'].map(label => ({
+        label,
+        circle: bounds(document.querySelector('button[aria-label="' + label + '"] i'))
+      })),
+      themeButton: bounds(document.querySelector('button[aria-label="Theme colors"]')),
+      topTenButton: bounds([...document.querySelectorAll('button')].find(button => button.textContent.includes('Top 10'))),
+      themeHasDeviceIcon: Boolean(document.querySelector('button[aria-label="Theme colors"] svg')),
+      themeHasOldPalette: Boolean(document.querySelector('button[aria-label="Theme colors"] [class*="triggerPalette"]'))
+    }
+  })()`)
+  if (layout.title?.visible || layout.gameTitle?.visible || layout.board?.visible) {
+    fail(`${width}x${height} mobile page exposes desktop title or leaderboard: ${JSON.stringify(layout)}`)
+  }
+  if (!layout.device?.visible || layout.device.width < Math.min(width * .8, height * .53) ||
+    Math.abs((layout.device.left + layout.device.right) / 2 - width / 2) > Math.max(10, width * .03)) {
+    fail(`${width}x${height} mobile machine is too small or off-center: ${JSON.stringify(layout)}`)
+  }
+  if (layout.device.scrollLeft !== 0 || layout.device.scrollTop !== 0) {
+    fail(`${width}x${height} machine shell scrolled internally: ${JSON.stringify(layout.device)}`)
+  }
+  if (width <= 768 && height > width) {
+    const usableHeight = height - Math.max(44, layout.header?.height || 0) - 16
+    if (layout.device.height < usableHeight * .95) {
+      fail(`${width}x${height} portrait machine leaves too much usable height empty: ${JSON.stringify({ deviceHeight: layout.device.height, usableHeight, header: layout.header })}`)
+    }
+  }
+  if (!layout.screen?.visible || !layout.screenIntrinsic?.width || !layout.screenIntrinsic?.height) {
+    fail(`${width}x${height} LCD screen is missing: ${JSON.stringify(layout.screen)}`)
+  }
+  const lcdScaleX = layout.screen.width / layout.screenIntrinsic.width
+  const lcdScaleY = layout.screen.height / layout.screenIntrinsic.height
+  if (Math.abs(lcdScaleX - lcdScaleY) > .01) {
+    fail(`${width}x${height} LCD is distorted: ${JSON.stringify({ lcdScaleX, lcdScaleY, screen: layout.screen })}`)
+  }
+  for (const control of layout.controls) {
+    if (!control.circle?.visible || Math.abs(control.circle.width - control.circle.height) > 1) {
+      fail(`${width}x${height} ${control.label} button is missing or stretched: ${JSON.stringify(control.circle)}`)
+    }
+  }
+  const withinDevice = box => box.left >= Math.max(layout.device.innerLeft, layout.device.left + 5) &&
+    box.right <= Math.min(layout.device.innerRight, layout.device.right - 5) &&
+    box.top >= layout.device.top + 5 && box.bottom <= layout.device.bottom - 5
+  if (!withinDevice(layout.screen) || layout.controls.some(control => !withinDevice(control.circle))) {
+    fail(`${width}x${height} LCD or control circle extends beyond the machine shell: ${JSON.stringify({ device: layout.device, lcdSurround: layout.lcdSurround, screen: layout.screen, controlsDock: layout.controlsDock, keyboard: layout.keyboard, scrollX: layout.scrollX, controls: layout.controls })}`)
+  }
+  const controlRowTop = Math.min(...layout.controls.map(control => control.circle.top))
+  if (layout.screen.bottom > controlRowTop - 2) {
+    fail(`${width}x${height} LCD overlaps the control row: ${JSON.stringify({ screenBottom: layout.screen.bottom, controlRowTop })}`)
+  }
+  if (height > width) {
+    const lcdToButtonGap = controlRowTop - layout.screen.bottom
+    const maxGap = height * .1
+    if (lcdToButtonGap > maxGap + 1) {
+      fail(`${width}x${height} LCD-to-button gap exceeds 10% of portrait viewport: ${JSON.stringify({
+        lcdToButtonGap, maxGap, shellHeight: layout.device.height, screenBottom: layout.screen.bottom,
+        nearestButtonTop: controlRowTop
+      })}`)
+    }
+    layout.lcdToButtonGap = lcdToButtonGap
+  }
+  for (const [name, button] of [['theme', layout.themeButton], ['Top 10', layout.topTenButton]]) {
+    if (!button?.visible || button.left < -1 || button.right > width + 1 || button.top < -1 || button.bottom > height + 1) {
+      fail(`${width}x${height} mobile ${name} toolbar button is not visible inside the viewport: ${JSON.stringify(layout)}`)
+    }
+  }
+  const near = (actual, expected) => Math.abs(actual - expected) <= 1
+  if (!near(layout.themeButton.width, 42) || !near(layout.themeButton.height, 42) ||
+    !near(layout.topTenButton.width, 84) || !near(layout.topTenButton.height, 42)) {
+    fail(`${width}x${height} mobile toolbar buttons do not keep their fixed sizes: ${JSON.stringify({ theme: layout.themeButton, topTen: layout.topTenButton })}`)
+  }
+  if (!layout.themeHasDeviceIcon || layout.themeHasOldPalette) {
+    fail(`${width}x${height} theme trigger must show the game-device SVG instead of palette dots`)
+  }
+  const overlaps = (a, b) => a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1
+  if (overlaps(layout.themeButton, layout.topTenButton) || overlaps(layout.themeButton, layout.device) || overlaps(layout.topTenButton, layout.device)) {
+    fail(`${width}x${height} mobile toolbar buttons overlap each other or the machine: ${JSON.stringify(layout)}`)
+  }
+  return layout
+}
+
+async function checkPageHeight(cdp, width, height, phase) {
+  const measured = await cdp.eval(`({ document: document.documentElement.scrollHeight,
+    body: document.body.scrollHeight })`)
+  if (Math.max(measured.document, measured.body) > height + 2) {
+    fail(`${width}x${height} page scrolls vertically during ${phase}: ${JSON.stringify(measured)}`)
+  }
+}
+
+async function exerciseMobileOverlays(cdp, width, height) {
+  await clickButton(cdp, 'Theme colors')
+  const themeDialog = await until(() => cdp.eval(`(() => {
+    const element = document.querySelector('[role="dialog"][aria-labelledby="theme-dialog-title"]')
+    if (!element) return null
+    const box = element.getBoundingClientRect()
+    return { left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+      scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }
+  })()`), Boolean, 'mobile theme modal')
+  if (themeDialog.left < -1 || themeDialog.right > width + 1 || themeDialog.top < -1 || themeDialog.bottom > height + 1) {
+    fail(`${width}px theme modal exceeds viewport: ${JSON.stringify(themeDialog)}`)
+  }
+  const themeScreenshot = await capture(cdp, `theme-modal-${width}x${height}.png`, width)
+  await clickButton(cdp, 'Close theme colors')
+  await until(() => cdp.eval(`document.querySelector('[role="dialog"]') === null`), Boolean, 'theme modal closed')
+
+  const opened = await cdp.eval(`(() => {
+    const button = [...document.querySelectorAll('button')].find(item => item.textContent.includes('Top 10'))
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!opened) fail(`${width}px Top 10 trigger is missing`)
+  await until(() => cdp.eval(`document.querySelector('[role="dialog"][aria-labelledby="mobile-leaderboard-title"]') !== null`),
+    Boolean, 'mobile Top 10 overlay')
+  const leaderboardDialog = await cdp.eval(`(() => {
+    const element = document.querySelector('[role="dialog"][aria-labelledby="mobile-leaderboard-title"]')
+    const box = element.getBoundingClientRect()
+    return { left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+      scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }
+  })()`)
+  if (leaderboardDialog.left < -1 || leaderboardDialog.right > width + 1 ||
+    leaderboardDialog.top < -1 || leaderboardDialog.bottom > height + 1) {
+    fail(`${width}px Top 10 modal exceeds viewport: ${JSON.stringify(leaderboardDialog)}`)
+  }
+  const leaderboardScreenshot = await capture(cdp, `leaderboard-modal-${width}x${height}.png`, width)
+  await clickButton(cdp, 'Close leaderboard')
+  await until(() => cdp.eval(`document.querySelector('[role="dialog"]') === null`), Boolean, 'Top 10 overlay closed')
+  return { themeDialog, leaderboardDialog, themeScreenshot, leaderboardScreenshot }
+}
+
+async function capture(cdp, filename, width) {
+  await cdp.eval('window.scrollTo(0, 0)')
+  const height = await cdp.eval('Math.ceil(document.documentElement.scrollHeight)')
+  const result = await cdp.send('Page.captureScreenshot', {
+    format: 'png', captureBeyondViewport: true, fromSurface: true,
+    clip: { x: 0, y: 0, width, height, scale: 1 }
+  })
+  const file = path.join(OUTPUT, filename)
+  const bytes = Buffer.from(result.data, 'base64')
+  await fs.writeFile(file, bytes)
+  if (bytes.readUInt32BE(16) !== width) fail(`Screenshot has unexpected width: ${filename}`)
+  return file
+}
+
+async function exerciseAllGames(cdp, network, bootstrapRequestCount) {
+  const inputs = {
+    tank: 'LEFT', tetris: 'DOWN', snake: 'DOWN',
+    shooting: 'LEFT', racing: 'RIGHT', breakout: 'LEFT'
+  }
+  const exercised = []
+  for (let i = 0; i < GAME_IDS.length; i++) {
+    const gameId = GAME_IDS[i]
+    if (await gameLabel(cdp) !== gameId) fail(`Expected ${gameId} menu before gameplay check`)
+    await clickButton(cdp, 'START(P)')
+    await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Playing"]') !== null`),
+      Boolean, `${gameId} start`, 15000)
+    const beforeMatrix = await cdp.eval(`document.querySelector('main [class*="index_matrix"]')?.innerHTML || null`)
+    if (!beforeMatrix) fail(`${gameId} matrix did not render`)
+    await clickButton(cdp, inputs[gameId])
+    await until(() => cdp.eval(`document.querySelector('main [class*="index_matrix"]')?.innerHTML || null`),
+      value => Boolean(value && value !== beforeMatrix), `${gameId} on-screen ${inputs[gameId]} input`, 2000)
+    await clickButton(cdp, 'RESET(R)')
+    await until(() => cdp.eval(`document.querySelector('main[aria-label="Brick Game machine"]')?.textContent?.includes('WELCOME') &&
+      document.querySelector('[role="img"][aria-label="Ready"]') !== null`), Boolean, `${gameId} reset`)
+    exercised.push({ gameId, input: inputs[gameId], reset: true })
+    await clickButton(cdp, 'ROTATE DIRECTION')
+    await until(() => gameLabel(cdp), value => value === GAME_IDS[(i + 1) % GAME_IDS.length], `${gameId} next menu`)
+  }
+  if (network.leaderboardRequests.length !== bootstrapRequestCount) {
+    fail('Starting and switching all six games triggered extra leaderboard GETs')
+  }
+  return exercised
+}
+
+async function runViewport(cdp, network, width, height, mobile, layoutOnly = false) {
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile })
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: mobile, maxTouchPoints: 1 })
+  const before = network.leaderboardRequests.length
+  const beforeSockets = network.webSocketHandshakes.length
+  await cdp.send('Page.navigate', { url: BASE_URL })
+  await until(() => gameLabel(cdp), value => value === 'tank', `${width}px game menu`)
+    .catch(error => fail(`${error.message}; browser exceptions: ${network.exceptions.join(', ') || 'none'}`))
+  await until(() => Promise.resolve(network.leaderboardRequests.length), value => value > before, 'leaderboard bootstrap GET')
+  await until(() => Promise.resolve(network.leaderboardResponses.length), value => value > before, 'leaderboard bootstrap response')
+  const bootRequests = network.leaderboardRequests.length - before
+  if (bootRequests !== 1) fail(`${width}px boot made ${bootRequests} leaderboard GETs, expected one`)
+  const bootstrap = network.leaderboardResponses.at(-1)
+  if (bootstrap.status !== 200) fail(`${width}px leaderboard bootstrap returned ${bootstrap.status}`)
+  await until(() => Promise.resolve(network.webSocketHandshakes.length), value => value > beforeSockets,
+    `${width}px leaderboard WebSocket handshake`)
+  if (network.webSocketHandshakes.at(-1).status !== 101) {
+    fail(`${width}px leaderboard WebSocket returned ${network.webSocketHandshakes.at(-1).status}`)
+  }
+  await until(() => cdp.eval(`(() => {
+    const board = document.querySelector('aside')
+    const ready = board?.querySelector('table') || board?.textContent?.includes('No verified scores yet')
+    return Boolean(ready && !board.textContent.includes('Live updates reconnecting'))
+  })()`), Boolean, `${width}px online leaderboard status`)
+
+  const measure = async () => cdp.eval(`({ viewport: innerWidth,
+    document: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth })`)
+  const dimensions = await measure()
+  if (dimensions.viewport !== width || dimensions.document > width + 1 || dimensions.body > width + 1) {
+    fail(`${width}px horizontal overflow: ${JSON.stringify(dimensions)}`)
+  }
+  const deviceRect = await checkViewportFit(cdp, width, height, mobile)
+  const composition = mobile ? await checkMobileComposition(cdp, width, height) : await checkDesktopComposition(cdp, width, height)
+  await checkPageHeight(cdp, width, height, 'menu')
+  if (layoutOnly) {
+    const screenshot = await capture(cdp, `tablet-${width}x${height}.png`, width)
+    return { viewport: `${width}x${height}`, dimensions, bootstrapGets: bootRequests,
+      webSocketStatus: 101, deviceRect, composition, screenshot }
+  }
+
+  const overlays = mobile ? await exerciseMobileOverlays(cdp, width, height) : null
+
+  for (let i = 1; i <= GAME_IDS.length; i++) {
+    await clickButton(cdp, 'ROTATE DIRECTION')
+    const expected = GAME_IDS[i % GAME_IDS.length]
+    await until(() => gameLabel(cdp), value => value === expected, `${width}px selected game ${expected}`)
+    const board = await cdp.eval(`document.querySelector('aside[aria-label=${JSON.stringify(`${expected} leaderboard`)}]') !== null`)
+    if (!board) fail(`${width}px leaderboard does not follow ${expected}`)
+  }
+  if (network.leaderboardRequests.length !== before + 1) {
+    fail(`${width}px game switching triggered an extra leaderboard GET`)
+  }
+
+  const exercisedGames = mobile ? null : await exerciseAllGames(cdp, network, before + 1)
+
+  await clickButton(cdp, 'START(P)')
+  await until(() => cdp.eval(`document.querySelector('main[aria-label="Brick Game machine"]')?.textContent?.includes('SCORE') &&
+    !document.querySelector('main[aria-label="Brick Game machine"]')?.textContent?.includes('WELCOME')`), Boolean, `${width}px game start`, 15000)
+  await until(() => cdp.eval(`document.querySelector('header [role="status"]') !== null`),
+    Boolean, `${width}px run-mode notice`)
+  await checkViewportFit(cdp, width, height, mobile)
+  if (mobile) await checkMobileComposition(cdp, width, height)
+  else await checkDesktopComposition(cdp, width, height)
+  await checkPageHeight(cdp, width, height, 'active run')
+  let retroScreenshot = null
+  if (!mobile) {
+    await selectRetro(cdp)
+    const playing = await cdp.eval(`document.querySelector('[role="img"][aria-label="Playing"]') !== null &&
+      !document.querySelector('main[aria-label="Brick Game machine"]')?.textContent?.includes('WELCOME')`)
+    if (!playing) fail('Theme switching interrupted active gameplay')
+    await checkViewportFit(cdp, width, height, mobile)
+    await checkDesktopComposition(cdp, width, height)
+    await checkPageHeight(cdp, width, height, 'retro theme')
+    retroScreenshot = await capture(cdp, `retro-cream-${width}x${height}.png`, width)
+  }
+  await clickButton(cdp, 'START(P)')
+  await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Paused"]') !== null`), Boolean, `${width}px paused indicator`, 3000)
+  await clickButton(cdp, 'RESET(R)')
+  await until(() => cdp.eval(`document.querySelector('main[aria-label="Brick Game machine"]')?.textContent?.includes('WELCOME')`), Boolean, `${width}px reset to menu`)
+  await checkViewportFit(cdp, width, height, mobile)
+  if (mobile) await checkMobileComposition(cdp, width, height)
+  else await checkDesktopComposition(cdp, width, height)
+  await checkPageHeight(cdp, width, height, 'reset')
+
+  const after = await measure()
+  if (after.document > width + 1 || after.body > width + 1) fail(`${width}px overflow after game controls: ${JSON.stringify(after)}`)
+  const screenshot = await capture(cdp, `${mobile ? 'mobile' : 'desktop'}-${width}x${height}.png`, width)
+  let retroReloadGets = null
+  if (!mobile) {
+    const beforeReload = network.leaderboardRequests.length
+    await cdp.send('Page.reload', { ignoreCache: true })
+    await until(() => gameLabel(cdp), value => value === 'tank', 'retro reload game menu')
+    await until(() => cdp.eval(`document.querySelector('main [class*="GameDevice_retro"]') !== null &&
+      document.querySelector('main [class*="GameDevice_modelMark"]')?.textContent?.includes('E-23')`), Boolean, 'persisted Retro Cream theme')
+    const stored = await cdp.eval(`JSON.parse(localStorage.getItem('brick-game-theme') || '{}').presetId`)
+    if (stored !== 'retro-cream') fail(`Retro Cream localStorage was not preserved: ${stored}`)
+    await until(() => Promise.resolve(network.leaderboardRequests.length), value => value > beforeReload, 'retro reload bootstrap GET')
+    retroReloadGets = network.leaderboardRequests.length - beforeReload
+    if (retroReloadGets !== 1) fail(`Retro reload made ${retroReloadGets} leaderboard GETs`)
+  }
+  return { viewport: `${width}x${height}`, dimensions: after, deviceRect, composition, overlays, bootstrapGets: bootRequests,
+    webSocketStatus: 101, switchingGets: 0, exercisedGames, screenshot, retroScreenshot, retroReloadGets }
+}
+
+async function runRankedSnake(cdp, network) {
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+  await cdp.send('Page.navigate', { url: BASE_URL })
+  await until(() => gameLabel(cdp), value => value === 'tank', 'ranked game menu')
+  await clickButton(cdp, 'ROTATE DIRECTION')
+  await until(() => gameLabel(cdp), value => value === 'tetris', 'Tetris menu')
+  await clickButton(cdp, 'ROTATE DIRECTION')
+  await until(() => gameLabel(cdp), value => value === 'snake', 'Snake menu')
+  await clickButton(cdp, 'START(P)')
+  await until(() => Promise.resolve(network.apiResponses.find(response => response.path === '/api/runs' && response.status === 201)),
+    Boolean, 'ranked run start')
+  await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Playing"]') !== null`), Boolean, 'Snake playing')
+  await clickButton(cdp, 'LEFT')
+  await until(() => Promise.resolve(network.apiResponses.find(response => response.path.endsWith('/finish') && response.status === 200)),
+    Boolean, 'verified Snake finish', 20000)
+  await until(() => cdp.eval(`document.querySelector('[role="dialog"] #claim-nickname') !== null`),
+    Boolean, 'verified Top 10 nickname dialog')
+  await cdp.eval(`document.querySelector('#claim-nickname').focus()`)
+  await cdp.send('Input.insertText', { text: 'SMOKE_PLAYER' })
+  await cdp.eval(`document.querySelector('[role="dialog"] button[type="submit"]').click()`)
+  await until(() => Promise.resolve(network.apiResponses.find(response => response.path.endsWith('/claim') && response.status === 200)),
+    Boolean, 'successful score claim')
+  await until(() => cdp.eval(`document.querySelector('aside[aria-label="snake leaderboard"]')?.textContent?.includes('SMOKE_PLAYER')`),
+    Boolean, 'claimed leaderboard entry')
+  const boardText = await cdp.eval(`document.querySelector('aside[aria-label="snake leaderboard"]')?.textContent`)
+  if (!boardText.includes('v1')) fail('Snake leaderboard version did not advance to 1')
+  const screenshot = await capture(cdp, 'ranked-snake-claimed-390x844.png', 390)
+  return { rankedStart: 201, verifiedFinish: 200, claim: 200, leaderboardVersion: 1,
+    nickname: 'SMOKE_PLAYER', screenshot }
+}
+
+async function checkResizeCycle(cdp) {
+  const measurements = []
+  for (const [width, height] of [[390, 844], [844, 390], [390, 844]]) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true })
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+    await until(() => cdp.eval('innerWidth'), value => value === width, `${width}x${height} resize viewport`)
+    const composition = await until(() => checkMobileComposition(cdp, width, height),
+      Boolean, `${width}x${height} machine after live resize`)
+    await checkViewportFit(cdp, width, height, true)
+    await checkPageHeight(cdp, width, height, 'live resize')
+    measurements.push({ viewport: `${width}x${height}`, machineHeight: Math.round(composition.device.height) })
+  }
+  return measurements
+}
+
+async function checkTopAnchoredPortraitGrowth(cdp, preset = 'default') {
+  const retro = preset === 'Retro Cream'
+  const measurements = []
+  for (const [width, height] of [[388, 700], [388, 866]]) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true })
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+    const composition = await until(async () => {
+      const composition = await checkMobileComposition(cdp, width, height)
+      await checkViewportFit(cdp, width, height, true)
+      return composition
+    }, Boolean, `${width}x${height} portrait machine after live resize`)
+    await checkPageHeight(cdp, width, height, 'portrait height comparison')
+    const measurement = await cdp.eval(`(() => {
+      const bounds = selector => {
+        const element = document.querySelector(selector)
+        if (!element) return null
+        const rect = element.getBoundingClientRect()
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+          height: rect.height, width: rect.width,
+          centerY: rect.top + rect.height / 2 }
+      }
+      return {
+        retro: Boolean(document.querySelector('main [class*="GameDevice_device"]')?.className.includes('GameDevice_retro')),
+        shell: bounds('main [class*="GameDevice_device"]'),
+        screen: bounds('main [class*="GameDevice_screen"]'),
+        controls: bounds('main [class*="GameDevice_controlsDock"]'),
+        modelMark: bounds('main [class*="GameDevice_modelMark"]'),
+        buttons: ['QUICK', 'DOWN', 'LEFT', 'RIGHT', 'ROTATE DIRECTION', 'START(P)',
+          'SOUND(S)', 'RESET(R)'].map(label => ({
+          label,
+          box: bounds('button[aria-label="' + label + '"]'),
+          circle: bounds('button[aria-label="' + label + '"] i')
+        }))
+      }
+    })()`)
+    if (!measurement.shell || !measurement.screen || !measurement.controls ||
+      measurement.buttons.some(({ box, circle }) => !box || !circle)) {
+      fail(`${width}x${height} portrait anchor measurement is incomplete: ${JSON.stringify(measurement)}`)
+    }
+    if (retro && (!measurement.retro || !measurement.modelMark)) {
+      fail(`${width}x${height} Retro Cream machine shape or model mark is missing: ${JSON.stringify(measurement)}`)
+    }
+    const withinShell = box => box.left >= measurement.shell.left - 2 &&
+      box.right <= measurement.shell.right + 2 && box.top >= measurement.shell.top - 2 &&
+      box.bottom <= measurement.shell.bottom + 2
+    if (![measurement.screen, ...measurement.buttons.map(button => button.box),
+      ...measurement.buttons.map(button => button.circle),
+      ...(retro ? [measurement.modelMark] : [])].every(withinShell)) {
+      fail(`${width}x${height} ${preset} LCD, button, or model mark is clipped by the shell: ${JSON.stringify(measurement)}`)
+    }
+    if (measurement.screen.bottom >= measurement.controls.top - 2) {
+      fail(`${width}x${height} LCD overlaps the controls group: ${JSON.stringify(measurement)}`)
+    }
+    if (retro && Math.max(...measurement.buttons.map(button => button.box.bottom)) >= measurement.modelMark.top - 2) {
+      fail(`${width}x${height} Retro Cream control labels overlap the model mark: ${JSON.stringify(measurement)}`)
+    }
+    const screenshot = retro ? await capture(cdp, `retro-mobile-${width}x${height}.png`, width) : null
+    measurements.push({ viewport: `${width}x${height}`, screenshot,
+      lcdToButtonGap: composition.lcdToButtonGap, ...measurement })
+  }
+  const [short, tall] = measurements
+  if (tall.shell.height - short.shell.height < 120 || Math.abs(tall.shell.width - short.shell.width) > 1) {
+    fail(`Portrait comparison did not lengthen only the shell: ${JSON.stringify(measurements)}`)
+  }
+  const shellTopShift = tall.shell.top - short.shell.top
+  const screenTopShift = tall.screen.top - short.screen.top
+  if (Math.abs(shellTopShift) > 2 || Math.abs(screenTopShift) > 2) {
+    fail(`Portrait top rim and LCD must remain anchored while the shell grows downward: ${JSON.stringify({
+      shellTopShift, screenTopShift, measurements
+    })}`)
+  }
+  if (tall.shell.bottom - short.shell.bottom < 120) {
+    fail(`Portrait shell did not extend downward: ${JSON.stringify(measurements)}`)
+  }
+  const screenScaleX = tall.screen.width / short.screen.width
+  const screenScaleY = tall.screen.height / short.screen.height
+  const screenScale = (screenScaleX + screenScaleY) / 2
+  if (screenScale < 1.05 || Math.abs(screenScaleX - screenScaleY) > .015) {
+    fail(`Portrait LCD did not enlarge uniformly with the shell: ${JSON.stringify({
+      screenScaleX, screenScaleY, measurements
+    })}`)
+  }
+  const controlsTopShift = tall.controls.top - short.controls.top
+  if (controlsTopShift < 5) {
+    fail(`Portrait controls did not move down below the enlarged LCD: ${JSON.stringify({
+      controlsTopShift, measurements
+    })}`)
+  }
+  for (let index = 0; index < short.buttons.length; index++) {
+    const shortButton = short.buttons[index]
+    const tallButton = tall.buttons[index]
+    const buttonScaleX = tallButton.circle.width / shortButton.circle.width
+    const buttonScaleY = tallButton.circle.height / shortButton.circle.height
+    if (buttonScaleX < 1.05 || Math.abs(buttonScaleX - buttonScaleY) > .02 ||
+      Math.abs(buttonScaleX - screenScale) > .025) {
+      fail(`Portrait ${shortButton.label} did not enlarge in proportion with the LCD: ${JSON.stringify({
+        screenScale, buttonScaleX, buttonScaleY, measurements
+      })}`)
+    }
+    if (tallButton.circle.centerY < shortButton.circle.centerY + 5) {
+      fail(`Portrait ${shortButton.label} did not move down with the enlarged controls: ${JSON.stringify({
+        shortButton, tallButton, measurements
+      })}`)
+    }
+  }
+  return measurements.map(({ viewport, screenshot, shell, lcdToButtonGap }) => ({
+    viewport,
+    preset,
+    machineHeight: Math.round(shell.height),
+    lcdToButtonGap: Math.round(lcdToButtonGap),
+    maxAllowedGap: Math.round(Number(viewport.split('x')[1]) * .1),
+    lcdAndButtonScale: Number(screenScale.toFixed(3)),
+    shellTopShift: Math.round(shellTopShift),
+    lcdTopShift: Math.round(screenTopShift),
+    controlsTopShift: Math.round(controlsTopShift),
+    screenshot
+  }))
+}
+
+async function checkRetroPortraitGaps(cdp) {
+  const results = []
+  for (const [width, height] of [[320, 568], [360, 640], [388, 700], [388, 866],
+    [390, 844], [412, 915], [600, 960], [768, 1024], [800, 1024]]) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true })
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+    await until(() => cdp.eval('innerWidth'), value => value === width, `${width}x${height} Retro portrait viewport`)
+    const composition = await until(async () => {
+      const measured = await checkMobileComposition(cdp, width, height)
+      await checkViewportFit(cdp, width, height, true)
+      return measured
+    }, Boolean, `${width}x${height} Retro LCD-to-button gap`)
+    const hasRetro = await cdp.eval(`document.querySelector('main [class*="GameDevice_device"]')?.className.includes('GameDevice_retro')`)
+    if (!hasRetro) fail(`${width}x${height} Retro preset was lost during resize`)
+    await checkPageHeight(cdp, width, height, 'Retro portrait gap')
+    const screenshot = width === 320 ? await capture(cdp, 'retro-mobile-320x568.png', width) : null
+    results.push({ viewport: `${width}x${height}`,
+      lcdToButtonGap: Math.round(composition.lcdToButtonGap), maxAllowedGap: Math.round(height * .1),
+      screenshot })
+  }
+  return results
+}
+
+async function main() {
+  const url = new URL(BASE_URL)
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)) {
+    fail('Browser smoke is restricted to a local HTTP server')
+  }
+  const browser = (await Promise.all(BROWSER_CANDIDATES.map(async candidate => {
+    if (!path.isAbsolute(candidate)) return null
+    const info = await fs.stat(candidate).catch(() => null)
+    return info?.isFile() ? candidate : null
+  }))).find(Boolean)
+  if (!browser) fail('Chrome or Edge executable not found; set CHROME_PATH')
+  const health = await fetch(`${BASE_URL}/api/health`)
+  if (!health.ok) fail(`Local Worker health returned ${health.status}`)
+  await fs.mkdir(OUTPUT, { recursive: true })
+  const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'brick-browser-smoke-'))
+  const chrome = spawn(browser, [
+    '--headless=new', '--disable-gpu', '--disable-gpu-sandbox', '--no-sandbox', '--disable-software-rasterizer',
+    '--disable-extensions', '--no-first-run', '--no-default-browser-check',
+    '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', '--remote-allow-origins=*', `--user-data-dir=${profile}`, 'about:blank'
+  ], { stdio: 'ignore', windowsHide: true })
+  let cdp
+  try {
+    const portFile = path.join(profile, 'DevToolsActivePort')
+    const port = await until(async () => {
+      const contents = await fs.readFile(portFile, 'utf8')
+      return Number(contents.split(/\r?\n/)[0])
+    }, value => Number.isInteger(value) && value > 0, 'Chrome debugging port')
+    const targets = await until(async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/json/list`)
+      return response.json()
+    }, value => Array.isArray(value) && value.some(target => target.type === 'page'), 'Chrome page target')
+    const tab = targets.find(target => target.type === 'page')
+    cdp = await connect(tab.webSocketDebuggerUrl)
+    await cdp.send('Page.enable')
+    await cdp.send('Runtime.enable')
+    await cdp.send('Network.enable')
+    const network = { leaderboardRequests: [], leaderboardResponses: [], webSocketHandshakes: [], apiResponses: [], exceptions: [] }
+    cdp.on('Network.requestWillBeSent', event => {
+      const requestUrl = new URL(event.request.url)
+      if (event.request.method === 'GET' && requestUrl.pathname === '/api/leaderboards') {
+        network.leaderboardRequests.push({ url: requestUrl.pathname, time: event.timestamp })
+      }
+    })
+    cdp.on('Network.responseReceived', event => {
+      const responseUrl = new URL(event.response.url)
+      if (responseUrl.pathname === '/api/leaderboards') network.leaderboardResponses.push({ status: event.response.status })
+      if (responseUrl.pathname.startsWith('/api/runs')) network.apiResponses.push({ path: responseUrl.pathname, status: event.response.status })
+    })
+    cdp.on('Network.webSocketHandshakeResponseReceived', event => {
+      network.webSocketHandshakes.push({ status: event.response.status })
+    })
+    cdp.on('Runtime.exceptionThrown', event => network.exceptions.push(event.exceptionDetails?.exception?.description || event.exceptionDetails?.text || 'unknown'))
+
+    if (process.env.BRICK_RANKED_E2E === '1') {
+      const ranked = await runRankedSnake(cdp, network)
+      if (network.exceptions.length) fail(`Browser exceptions: ${network.exceptions.join(', ')}`)
+      console.log(JSON.stringify({ passed: true, ranked }, null, 2))
+      return
+    }
+    const smallMobile = await runViewport(cdp, network, 320, 568, true)
+    const mobile = await runViewport(cdp, network, 390, 844, true)
+    const desktop = await runViewport(cdp, network, 1440, 900, false)
+    const tablet = await runViewport(cdp, network, 1024, 768, false, true)
+    await cdp.eval(`localStorage.removeItem('brick-game-theme')`)
+    const reference = await runViewport(cdp, network, 1848, 997, false, true)
+    await cdp.eval(`localStorage.removeItem('brick-game-theme')`)
+    const portrait = await runViewport(cdp, network, 800, 1024, true, true)
+    const additionalViewports = []
+    for (const [width, height, isMobile] of [
+      [360, 640, true], [388, 866, true], [412, 915, true], [600, 960, true],
+      [768, 1024, true], [844, 390, true], [1366, 768, false]
+    ]) {
+      const result = await runViewport(cdp, network, width, height, isMobile, true)
+      additionalViewports.push({
+        viewport: result.viewport,
+        machineHeight: Math.round(result.deviceRect.bottom - result.deviceRect.top),
+        lcdToButtonGap: result.composition.lcdToButtonGap,
+        maxAllowedGap: isMobile && height > width ? height * .1 : undefined,
+        themeButton: result.composition.themeButton && {
+          width: result.composition.themeButton.width,
+          height: result.composition.themeButton.height
+        },
+        topTenButton: result.composition.topTenButton && {
+          width: result.composition.topTenButton.width,
+          height: result.composition.topTenButton.height
+        },
+        screenshot: result.screenshot
+      })
+    }
+    const resizeCycle = await checkResizeCycle(cdp)
+    const topAnchoredPortrait = await checkTopAnchoredPortraitGrowth(cdp)
+    await selectRetro(cdp)
+    const retroTopAnchoredPortrait = await checkTopAnchoredPortraitGrowth(cdp, 'Retro Cream')
+    const retroPortraitGaps = await checkRetroPortraitGaps(cdp)
+    if (network.exceptions.length) fail(`Browser exceptions: ${network.exceptions.join(', ')}`)
+    console.log(JSON.stringify({ passed: true, smallMobile, mobile, desktop, tablet, reference, portrait,
+      additionalViewports, resizeCycle, topAnchoredPortrait, retroTopAnchoredPortrait, retroPortraitGaps }, null, 2))
+  } finally {
+    if (cdp) cdp.socket.close()
+    chrome.kill()
+    const profilePath = path.resolve(profile)
+    const tempPath = path.resolve(os.tmpdir())
+    if (path.dirname(profilePath) === tempPath && path.basename(profilePath).startsWith('brick-browser-smoke-')) {
+      await fs.rm(profilePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {})
+    }
+  }
+}
+
+main().catch(error => {
+  console.error(`Browser smoke failed: ${error.message}`)
+  process.exitCode = 1
+})

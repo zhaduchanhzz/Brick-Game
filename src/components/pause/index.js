@@ -1,40 +1,19 @@
-import React, { useEffect, useState } from 'react'
-import cn from 'classnames'
+import React from 'react'
 import PropTypes from 'prop-types'
-
 import style from './index.module.less'
 
-const Pause = ({ pause }) => {
-  const [show, setShow] = useState(false)
-  useEffect(() => {
-    //0-未开始 1-开始 2-暂停
-    setShake(pause)
-  }, [pause, show])
-
-  // 根据props显示闪烁或停止闪烁
-  const setShake = (pause) => {
-    if (pause === 2) {
-      setTimeout(() => {
-        setShow(!show)
-      }, 250)
-    } else {
-      setShow(false)
-    }
-  }
-
+export default function Pause({ pause }) {
   return (
     <div
-      className={cn({
-        bg: true,
-        [style.pause]: true,
-        [style.c]: show,
-      })}
-    />
+      className={`${style.status} ${pause === 2 ? style.paused : pause === 1 ? style.playing : style.ready}`}
+      role="img"
+      aria-label={pause === 2 ? 'Paused' : pause === 1 ? 'Playing' : 'Ready'}
+    >
+      <span aria-hidden="true" />
+    </div>
   )
 }
 
 Pause.propTypes = {
-  pause: PropTypes.number.isRequired
+  pause: PropTypes.number.isRequired,
 }
-
-export default Pause

@@ -3,12 +3,16 @@ import style from './index.module.less'
 import Button from './button'
 import PropTypes from 'prop-types'
 
-const Keyboard = ({ filling }) => {
+const Keyboard = ({ filling, scale = 1 }) => {
+  // The right-hand buttons move inward as their circles grow. This preserves
+  // their spacing while keeping the full keyboard inside a narrow case.
+  const compact = Math.max(0, Math.min(1, (scale - 1) / .15))
   return (
     <div
       className={style.keyboard}
       style={{
-        marginTop: 20 + filling
+        marginTop: 20 + filling,
+        transform: `translateX(${23 * compact * scale}px) scale(${scale})`
       }}
     >
       <div className={style.left}>
@@ -55,7 +59,7 @@ const Keyboard = ({ filling }) => {
         color="blue"
         size="s0"
         top={100}
-        left={380}
+        left={380 - 40 * compact}
         label="ROTATE DIRECTION"
         type="rotate"
       />
@@ -63,7 +67,7 @@ const Keyboard = ({ filling }) => {
         color="red"
         size="s2"
         top={0}
-        left={540}
+        left={508 - 60 * compact}
         label="RESET(R)"
         type="r"
       />
@@ -71,7 +75,7 @@ const Keyboard = ({ filling }) => {
         color="green"
         size="s2"
         top={0}
-        left={450}
+        left={420 - 60 * compact}
         label="SOUND(S)"
         type="s"
       />
@@ -79,7 +83,7 @@ const Keyboard = ({ filling }) => {
         color="green"
         size="s2"
         top={0}
-        left={360}
+        left={332 - 60 * compact}
         label="START(P)"
         type="p"
       />
@@ -89,6 +93,7 @@ const Keyboard = ({ filling }) => {
 
 Keyboard.propTypes = {
   filling: PropTypes.number.isRequired,
+  scale: PropTypes.number,
 }
 
 export default Keyboard

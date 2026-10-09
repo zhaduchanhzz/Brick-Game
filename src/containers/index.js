@@ -1,100 +1,148 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useSelector } from 'react-redux'
+import GameDevice from '../components/device/GameDevice'
+import ThemeDialog from '../components/theme/ThemeDialog'
+import LeaderboardPanel from '../components/leaderboard/LeaderboardPanel'
+import ClaimNameDialog from '../components/leaderboard/ClaimNameDialog'
+import RunModeNotice from '../components/run/RunModeNotice'
+import useLeaderboardSync from '../hooks/useLeaderboardSync'
+import { subscribeVerifiedRun } from '../api/runResults'
+import { subscribeRunMode } from '../api/runMode'
+import { COLOR_FIELDS, DEFAULT_PRESET_ID, THEME_STORAGE_VERSION, isHexColor, loadTheme, resolveTheme, saveTheme, themeVariables } from '../theme/presets'
 import style from './index.module.less'
-import Decorate from '../components/decorate'
-import Keyboard from '../components/keybord'
-import Number from '../components/number'
-import Music from '../components/music'
-import Pause from '../components/pause'
-import Welcome from '../components/welcome'
-import { shallowEqual, useSelector } from 'react-redux'
-import TetrisPanel from '../components/tetris-panel'
-import SnakePanel from '../components/snake-panel'
-import ShootingPanel from '../components/shooting-panel'
-import { transform } from '../utils/const'
-import Logo from '../components/logo'
-import Guide from '../components/guide'
-import BreakoutPanel from '../components/breakout-panel'
-import RacingPanel from '../components/rancing-panel'
-import TankPanel from '../components/tank-panel'
 
-const App = () => {
-  const state = useSelector((state) => state, shallowEqual)
-  const { levels, speed, music, pause, game, games } = state
+const COLOR_KEYS = new Set(COLOR_FIELDS.map(([key]) => key))
 
-  const [w, setW] = useState(document.documentElement.clientWidth)
-  const [h, setH] = useState(document.documentElement.clientHeight)
+export function MobileLeaderboard({ panelProps }) {
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef(null)
+  const dialogRef = useRef(null)
+  const closeRef = useRef(null)
 
   useEffect(() => {
-    window.addEventListener('resize', () => {
-      setW(document.documentElement.clientWidth)
-      setH(document.documentElement.clientHeight)
-    })
-  }, [w, h])
-  let filling = 0
-  const size = (() => {
-    const ratio = h / w
-    let scale
-    let css = {}
-    if (ratio < 1.5) {
-      scale = h / 960
-    } else {
-      scale = w / 640
-      filling = (h - (960 * scale)) / scale / 3
-      css = {
-        paddingTop: Math.floor(filling) + 42,
-        paddingBottom: Math.floor(filling),
-        marginTop: Math.floor(-480 - (filling * 1.5)),
+    if (!open) return undefined
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    closeRef.current.focus()
+    return () => {
+      document.body.style.overflow = previousOverflow
+      if (triggerRef.current) triggerRef.current.focus()
+    }
+  }, [open])
+
+  function onKeyDown(event) {
+    event.stopPropagation()
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+    } else if (event.key === 'Tab') {
+      const buttons = Array.from(dialogRef.current.querySelectorAll('button:not([disabled])'))
+      const first = buttons[0]
+      const last = buttons[buttons.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
       }
     }
-    css[transform] = `scale(${scale})`
-    return css
-  })()
+  }
 
   return (
-    <div className={style.app} style={size}>
-      <div className={style.rect}>
-        <Decorate />
-        <div className={style.screen}>
-          <div className={style.panel}>
-            {games[game].name === 'tetris' && <TetrisPanel />}
-            {games[game].name === 'snake' && <SnakePanel />}
-            {games[game].name === 'shooting' && <ShootingPanel />}
-            {games[game].name === 'racing' && <RacingPanel />}
-            {games[game].name === 'breakout' && <BreakoutPanel />}
-            {games[game].name === 'tank' && <TankPanel />}
-            {pause === 0 && <Welcome game={games[game].name.toUpperCase()} />}
-            <div className={style.state}>
-              {
-                pause === 0
-                  ?
-                  <>
-                    <p>HI-SCORE</p>
-                    <Number number={games[game].highest} length={6} />
-                  </>
-                  :
-                  <>
-                    <p>SCORE</p>
-                    <Number number={games[game].score} length={6} />
-                  </>
-              }
-              <p>levels</p>
-              <Number number={levels} length={6} />
-              <p>speed</p>
-              <Number number={speed} length={1} />
-              {pause===0 && <Logo/>}
-              <div className={style.bottom}>
-                <Music music={music} />
-                <Pause pause={pause} />
-                <Number time={true} />
-              </div>
+    <>
+      <button ref={triggerRef} className={style.mobileLeaderboardButton} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>🏆 Top 10</button>
+      {open && createPortal(
+        <div className={style.mobileLeaderboardOverlay} onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false) }}>
+          <section ref={dialogRef} className={style.mobileLeaderboardContent} role="dialog" aria-modal="true" aria-labelledby="mobile-leaderboard-title" onKeyDown={onKeyDown}>
+            <div className={style.mobileLeaderboardHeader}>
+              <h2 id="mobile-leaderboard-title">Top 10 leaderboard</h2>
+              <button ref={closeRef} className={style.mobileLeaderboardClose} type="button" aria-label="Close leaderboard" onClick={() => setOpen(false)}>×</button>
             </div>
-          </div>
-        </div>
-      </div>
-      <Keyboard filling={filling}/>
-      <Guide/>
-    </div>
+            <LeaderboardPanel {...panelProps} />
+          </section>
+        </div>, document.body,
+      )}
+    </>
   )
 }
 
-export default App
+export default function App() {
+  const gameId = useSelector(state => state.games[state.game].name)
+  const [theme, setTheme] = useState(loadTheme)
+  const [lastVerified, setLastVerified] = useState(null)
+  const [claimCandidate, setClaimCandidate] = useState(null)
+  const [runMode, setRunMode] = useState({ mode: 'idle' })
+  const gameMainRef = useRef(null)
+  const leaderboard = useLeaderboardSync()
+  const resolvedTheme = resolveTheme(theme)
+  const board = leaderboard.games[gameId] || { version: 0, entries: [] }
+  const leaderboardProps = { gameId, board, status: leaderboard.status, connection: leaderboard.connection, error: leaderboard.error, onRetry: leaderboard.retry, lastVerified }
+  const claimLost = Boolean(lastVerified && lastVerified.gameId === gameId && lastVerified.claimLost)
+
+  useEffect(() => saveTheme(theme), [theme])
+  useEffect(() => subscribeVerifiedRun(result => {
+    setLastVerified(result)
+    setClaimCandidate(result.eligibleToClaim === true ? result : null)
+  }), [])
+  useEffect(() => subscribeRunMode(mode => {
+    setRunMode(mode)
+    if (mode.mode !== 'idle') {
+      setLastVerified(current => current && current.claimLost ? { ...current, claimLost: false } : current)
+    }
+  }), [])
+
+  function choosePreset(presetId) {
+    setTheme({ version: THEME_STORAGE_VERSION, presetId, overrides: {} })
+  }
+
+  function changeColor(key, color) {
+    if (!COLOR_KEYS.has(key) || !isHexColor(color)) return
+    setTheme(current => ({ ...current, overrides: { ...current.overrides, [key]: color.toUpperCase() } }))
+  }
+
+  function resetTheme() {
+    setTheme({ version: THEME_STORAGE_VERSION, presetId: DEFAULT_PRESET_ID, overrides: {} })
+  }
+
+  function onClaimed(result, response) {
+    setLastVerified(current => current && current.runId === result.runId ? { ...current, claimed: true } : current)
+    setClaimCandidate(null)
+    leaderboard.notifyVersion(result.gameId, response.boardVersion)
+  }
+
+  function onIneligible() {
+    setLastVerified(current => current ? { ...current, eligibleToClaim: false, claimLost: true } : current)
+    setClaimCandidate(null)
+  }
+
+  return (
+    <div className={style.page} style={themeVariables(theme)}>
+      <header className={style.header}>
+        <div className={style.brand}>
+          <p>THE HANDHELD ARCADE</p>
+          <h1>BRICK GAME</h1>
+          <span>Six classics. One machine.</span>
+        </div>
+        <div className={style.gameTitle}><span className={style.liveDot} /> NOW PLAYING <strong>{gameId.toUpperCase()}</strong></div>
+        <RunModeNotice runMode={runMode} />
+        {claimLost && (
+          <p className={style.claimAlert} role="alert">The Top 10 changed while you entered your name. This run no longer qualifies.</p>
+        )}
+        <div className={style.toolbar}>
+          <ThemeDialog theme={theme} onColorChange={changeColor} onPresetChange={choosePreset} onReset={resetTheme} />
+          <MobileLeaderboard panelProps={leaderboardProps} />
+        </div>
+        <p className={style.controlsHint}>Use the machine buttons or arrow keys. P starts or pauses, R resets, S toggles sound, and Space rotates games from the menu.</p>
+      </header>
+      <div className={style.layout}>
+        <main ref={gameMainRef} tabIndex={-1} className={style.gameColumn} aria-label="Brick Game machine">
+          <GameDevice shape={resolvedTheme.shape} />
+        </main>
+        <div className={style.desktopLeaderboard}><LeaderboardPanel {...leaderboardProps} /></div>
+      </div>
+      <ClaimNameDialog result={claimCandidate} returnFocusRef={gameMainRef} onClose={() => setClaimCandidate(null)} onClaimed={onClaimed} onIneligible={onIneligible} />
+    </div>
+  )
+}

@@ -11,6 +11,7 @@ import shooting from './shootingSlice'
 import breakout from './breakoutSlice'
 import racing from './racingSlice'
 import tank from './tankSlice'
+import leaderboard from './leaderboardSlice'
 
 export default {
   levels,
@@ -25,5 +26,6 @@ export default {
   shooting,
   breakout,
   racing,
-  tank
+  tank,
+  leaderboard,
 }

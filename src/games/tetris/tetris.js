@@ -11,13 +11,13 @@ export const blankMatrix = (() => {
   return matrix
 })()
 
-export const initMatrix = (levels) => {
+export const initMatrix = (levels, rng = Math.random) => {
   let res = []
   if (levels > 10) {
     levels = 10
   }
   for(let i=0; i<levels; i++) {
-    res.push(initLines())
+    res.push(initLines(rng))
   }
   while(res.length<20) {
     res.unshift(Array(10).fill(0))
@@ -25,13 +25,14 @@ export const initMatrix = (levels) => {
   return res
 }
 
-const initLines = () => {
+const initLines = (rng) => {
   //4~8个1
-  let n = Math.floor(Math.random()*4)+4
+  let n = Math.floor(rng()*4)+4
   let lines = Array(n).fill(1).concat(Array(10-n).fill(0))
-  lines.sort(() => {
-    return .5 - Math.random()
-  })
+  for (let i = lines.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[lines[i], lines[j]] = [lines[j], lines[i]]
+  }
   return lines
 }
 
@@ -95,7 +96,7 @@ class Tetris {
   clear() {
     this.matrix = this.matrix.filter(line => !line.every(n => !!n))
     let lines = this.matrix.length
-    this.score += addScores[20-lines]
+    this.score += addScores[20-lines-1]
     if (lines === 20) {
       return false
     }
@@ -252,19 +253,19 @@ class Tetris {
     }
   }
 
-  static getNextType() {
+  static getNextType(rng = Math.random) {
     // return 'O'
-    return blockType[Math.floor(Math.random() * blockType.length)]
+    return blockType[Math.floor(rng() * blockType.length)]
   }
 
 }
 
-export const createNewTetris = ({ levels, next }) => {
-  next = next || Tetris.getNextType()
+export const createNewTetris = ({ levels, next, rng = Math.random }) => {
+  next = next || Tetris.getNextType(rng)
   const shape = blockShape[next]
-  next = Tetris.getNextType()
+  next = Tetris.getNextType(rng)
   const params = {
-    matrix: initMatrix(levels-1),
+    matrix: initMatrix(levels-1, rng),
     xy: originXY,
     next,
     shape,

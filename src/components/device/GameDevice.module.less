@@ -1,0 +1,159 @@
+.stage {
+  width: 100%;
+  // The center grid track owns desktop height; portrait phones can extend the shell.
+  max-width: 640px;
+  margin: 0 auto;
+}
+@media (max-width: 999px), (max-height: 580px), (max-aspect-ratio: 6/5) {
+  .stage {
+    --machine-vh: 66.6667vh;
+    max-width: ~"min(640px, calc(var(--machine-vh) - 40px))";
+  }
+}
+@supports (height: 100dvh) {
+  .stage { --machine-vh: 66.6667dvh; }
+}
+@media (orientation: portrait) {
+  .stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+  }
+}
+.sized { position: relative; max-width: 100%; margin: 0 auto; }
+.device {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  top: 0;
+  left: 0;
+  width: 640px;
+  height: 960px;
+  padding-top: 42px;
+  transform-origin: top left;
+  border: 8px solid var(--border-color);
+  border-radius: 40px 40px 68px 68px;
+  background-color: var(--case-color);
+  background-image:
+    url('../../resource/image/plastic-wear-overlay-v1.png'),
+    url('../../resource/image/plastic-grain-v1.png'),
+    linear-gradient(112deg, rgba(255, 255, 255, .20) 0%, transparent 29%, rgba(0, 0, 0, .07) 78%, rgba(255, 255, 255, .08) 100%);
+  background-size: 100% 100%, 280px 280px, 100% 100%;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, soft-light, normal;
+  color: var(--label-color);
+  box-shadow:
+    inset 0 0 0 4px rgba(255, 255, 255, .17),
+    inset 5px 0 9px rgba(255, 255, 255, .20),
+    inset -8px 0 17px rgba(0, 0, 0, .18),
+    inset 0 17px 19px rgba(255, 255, 255, .16),
+    inset 0 -23px 30px rgba(0, 0, 0, .20),
+    0 24px 44px rgba(0, 0, 0, .35);
+  // Hidden overflow is still programmatically scrollable by scrollIntoView;
+  // clip keeps the bezel fixed while the controls are focused or tapped.
+  overflow: hidden;
+  overflow: clip;
+
+  &:before {
+    content: '';
+    position: absolute;
+    top: 15px;
+    left: 20px;
+    right: 20px;
+    height: 8px;
+    border-radius: 20px;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, .62), var(--accent-color) 45%, rgba(0, 0, 0, .18));
+    box-shadow: 0 1px 1px rgba(0, 0, 0, .18);
+    opacity: .76;
+  }
+
+  :global {
+    b {
+      display: block;
+      width: 20px;
+      height: 20px;
+      padding: 2px;
+      border: 2px solid var(--lcd-pixel-color);
+      opacity: .25;
+      margin: 0 2px 2px 0;
+      float: left;
+      &:after { content: ''; display: block; width: 12px; height: 12px; background: var(--lcd-pixel-color); overflow: hidden; }
+      &.c { opacity: 1; }
+      &.d { border-color: #6c3030; opacity: 1; &:after { background: #6c3030; } }
+      &.e { opacity: .5; }
+      &.f { opacity: .45; }
+      &.g { opacity: .4; }
+      &.h { opacity: .36; }
+      &.i { opacity: .3; }
+    }
+  }
+}
+.rect {
+  flex: 0 0 auto;
+  width: 480px;
+  // Reserve the LCD's transformed height so the controls follow its bottom.
+  padding: 45px 0 calc(35px + var(--lcd-growth, 0px));
+  border: var(--border-color) solid;
+  border-width: 0 10px 10px;
+  border-radius: 0 0 16px 16px;
+  margin: 0 auto;
+  position: relative;
+  background: linear-gradient(118deg, rgba(255, 255, 255, .055), transparent 45%, rgba(0, 0, 0, .045));
+  box-shadow: inset 3px 3px 6px rgba(255, 255, 255, .14), 2px 4px 4px rgba(0, 0, 0, .11);
+}
+.controlsDock { flex: 0 0 auto; width: 100%; height: calc(334px + var(--keyboard-growth, 0px)); }
+.screen {
+  width: 390px;
+  height: 478px;
+  border: solid 5px var(--lcd-bezel-color);
+  border-radius: 8px;
+  box-shadow: inset 2px 3px 6px rgba(0, 0, 0, .22), -4px -4px 0 rgba(0, 0, 0, .17), 3px 3px 0 rgba(255, 255, 255, .24), 0 7px 11px rgba(0, 0, 0, .12);
+  margin: 0 auto;
+  position: relative;
+  transform: scale(var(--content-scale, 1));
+  transform-origin: center top;
+
+  &:after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(130deg, rgba(255, 255, 255, .09), transparent 27%, transparent 70%, rgba(0, 0, 0, .045));
+  }
+}
+.panel {
+  width: 380px;
+  height: 468px;
+  margin: 0 auto;
+  background-color: var(--lcd-color);
+  background-image: repeating-linear-gradient(to bottom, rgba(255, 255, 255, .014) 0 1px, transparent 1px 4px);
+  padding: 8px;
+  border: 2px solid var(--border-color);
+  color: var(--lcd-pixel-color);
+  box-shadow: inset 0 0 13px rgba(21, 30, 18, .16);
+}
+.state {
+  width: 108px;
+  position: absolute;
+  top: 0;
+  right: 15px;
+  p { margin: 0; line-height: 47px; height: 57px; padding: 10px 0 0; white-space: nowrap; clear: both; }
+}
+.bottom { position: absolute; width: 114px; top: 426px; left: 0; }
+.retro {
+  border-width: 10px;
+  border-radius: 94px 94px 142px 142px / 95px 95px 110px 110px;
+  box-shadow: inset 0 0 0 8px rgba(255, 255, 255, .24), inset 7px 0 18px rgba(255, 255, 255, .27), inset -11px 0 21px rgba(85, 53, 17, .16), inset 0 25px 20px rgba(255, 255, 255, .25), inset 0 -26px 28px rgba(85, 53, 17, .23), 0 28px 50px rgba(0, 0, 0, .35);
+  &:before { top: 27px; left: 95px; right: 95px; height: 6px; }
+  &:after { content: ''; position: absolute; bottom: 37px; left: 114px; right: 114px; height: 7px; border-radius: 50%; background: var(--border-color); opacity: .4; }
+  .rect { border-radius: 16px 16px 36px 36px; border-width: 8px 10px 14px; padding-top: 45px; background: rgba(255, 250, 227, .15); }
+  .screen { border-width: 8px; border-radius: 20px; width: 396px; height: 484px; }
+  .panel { width: 380px; height: 468px; border-radius: 10px; }
+}
+.modelMark { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 13px; font-weight: 800; letter-spacing: 3px; opacity: .68; text-shadow: 0 1px rgba(255, 255, 255, .34); }
+
+@media (prefers-reduced-motion: reduce) {
+  .device { transition: none; }
+}

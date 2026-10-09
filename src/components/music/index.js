@@ -1,15 +1,12 @@
 import React from 'react'
-import cn from 'classnames'
 import style from './index.module.less'
 import PropTypes from 'prop-types'
 
 const Music = ({ music }) => {
   return (
-    <div className={cn({
-      bg: true,
-      [style.music]: true,
-      [style.c]: !music
-    })}></div>
+    <div className={`${style.music} ${music ? '' : style.off}`} role="img" aria-label={music ? 'Sound on' : 'Sound off'}>
+      <span aria-hidden="true">♪</span>
+    </div>
   )
 }
 Music.propTypes = {

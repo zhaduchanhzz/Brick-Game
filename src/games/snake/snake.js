@@ -2,18 +2,19 @@ export const speeds = [1000, 800, 650, 500, 370, 200]
 
 export default class Snake {
 
-  constructor({ head, bodies, food, deadth, levels, direction }) {
+  constructor({ head, bodies, food, deadth, death, levels, direction, rng = Math.random }) {
+    Object.defineProperty(this, 'rng', { value: rng })
     this.head = head || this.initHead()
     this.bodies = bodies || this.initBodies(levels)
     this.food = food || this.changeFood()
-    this.deadth = deadth || false
+    this.deadth = death || deadth || false
     this.direction = direction || ''
   }
 
   initHead() {
     return [
-      Math.floor(Math.random()*19),
-      Math.floor(Math.random()*4)
+      Math.floor(this.rng()*19),
+      Math.floor(this.rng()*4)
     ]
   }
 
@@ -32,14 +33,23 @@ export default class Snake {
   }
 
   changeFood() {
-    let food = randomXY()
+    let food = randomXY(this.rng)
     // while(this.bodies.contains(food)) {
     //   food = List(randomXY())
     // }
+    let attempts = 0
     while(this.bodies.some(point => {
       return point[0] === food[0] && point[1] === food[1]
-    })) {
-      food = randomXY()
+    }) && attempts++ < 200) {
+      food = randomXY(this.rng)
+    }
+    if (this.bodies.some(point => point[0] === food[0] && point[1] === food[1])) {
+      for (let x = 0; x < 20; x++) {
+        for (let y = 0; y < 10; y++) {
+          if (!this.bodies.some(point => point[0] === x && point[1] === y)) return [x, y]
+        }
+      }
+      this.deadth = true
     }
     return food
   }
@@ -124,13 +134,13 @@ export default class Snake {
   }
 }
 
-export const randomXY = () => {
+export const randomXY = (rng = Math.random) => {
   return [
-    Math.floor(Math.random()*19),
-    Math.floor(Math.random()*9),
+    Math.floor(rng()*19),
+    Math.floor(rng()*9),
   ]
 }
 
-export const createNewSnake = (levels) => {
-  return new Snake({ levels })
+export const createNewSnake = (levels, rng = Math.random) => {
+  return new Snake({ levels, rng })
 }

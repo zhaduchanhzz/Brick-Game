@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local ranked development. Never commit the filled file.
+SESSION_SECRET="replace-me"
+# Optional until the frontend provides a Turnstile site key and token.
+# TURNSTILE_SECRET="replace-with-your-secret"

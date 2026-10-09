@@ -2,9 +2,9 @@ import React from 'react'
 import cn from 'classnames'
 import style from './index.module.less'
 
-const Decorate = () => {
+const Decorate = ({ retro = false }) => {
   return (
-    <div className={style.decorate}>
+    <div className={`${style.decorate} ${retro ? style.retro : ''}`}>
       <div className={style.topBorder}>
         <span className={cn(['l', style.mr])} style={{ width: 40 }} />
         <span className={cn(['l', style.mr])} />
@@ -17,7 +17,7 @@ const Decorate = () => {
         <span className={cn(['r', style.ml])} />
         <span className={cn(['r', style.ml])} />
       </div>
-      <h1>BRICK GAME</h1>
+      <h1>{retro ? 'BRICK GAME 2 IN 1' : 'BRICK GAME'}</h1>
       <div className={style.view}>
         <b className="c" />
         <div className="clear" />

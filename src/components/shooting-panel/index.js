@@ -1,17 +1,16 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import Matrix from '../matrix'
 import games from '../../utils/games'
 import { useSelector } from 'react-redux'
 import { blankMatrix } from '../../games/tetris/tetris'
 import { copyData } from '../../utils/helps'
-import { speeds } from '../../games/snake/snake'
 import { shape } from '../../games/shooting/shooting'
-import { controlShooting, gameover } from '../../control/shooting'
+import { gameover } from '../../control/shooting'
 
 const SnakePanel = () => {
   let matrix = []
 
-  const { shooting, pause, lock, speed } = useSelector(state => state)
+  const { shooting, pause } = useSelector(state => state)
 
   const buildMatrix = () => {
     if (pause === 0) {
@@ -52,19 +51,6 @@ const SnakePanel = () => {
 
   buildMatrix()
 
-  useEffect(() => {
-    if (pause === 1 && !lock) {
-      const timer = setInterval(() => {
-        controlShooting('up')
-        if(lock) {
-          clearInterval(timer)
-        }
-      }, speeds[speed])
-      return (() => {
-        clearInterval(timer)
-      })
-    }
-  }, [pause, lock, speed])
   return (
     <Matrix matrix={matrix} isDead={shooting.death} gameover={gameover}/>
   )

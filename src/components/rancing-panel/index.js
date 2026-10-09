@@ -1,17 +1,17 @@
 /* eslint-disable no-unused-vars */
-import React, { useEffect } from 'react'
+import React from 'react'
 import Matrix from '../matrix'
 import games from '../../utils/games'
 import { useSelector } from 'react-redux'
 import { blankMatrix } from '../../games/tetris/tetris'
 import { copyData } from '../../utils/helps'
-import { gameover, run } from '../../control/racing'
-import { shape, speeds } from '../../games/racing'
+import { gameover } from '../../control/racing'
+import { shape } from '../../games/racing'
 
 const RacingPanel = () => {
   let matrix = []
 
-  const { racing, pause, lock, speed } = useSelector(state => state)
+  const { racing, pause } = useSelector(state => state)
 
   const buildMatrix = () => {
     if (pause === 0) {
@@ -53,19 +53,6 @@ const RacingPanel = () => {
 
   buildMatrix()
 
-  useEffect(() => {
-    if (pause === 1 && !lock) {
-      const timer = setInterval(() => {
-        run()
-        if(lock) {
-          clearInterval(timer)
-        }
-      }, speeds[speed])
-      return (() => {
-        clearInterval(timer)
-      })
-    }
-  }, [pause, lock, speed])
   return (
     <Matrix matrix={matrix} isDead={racing.death} gameover={gameover}/>
   )

@@ -1,0 +1,2 @@
+ALTER TABLE run_sessions
+  ADD COLUMN start_speed INTEGER NOT NULL DEFAULT 1 CHECK (start_speed BETWEEN 1 AND 6);
