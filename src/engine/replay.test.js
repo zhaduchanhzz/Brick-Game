@@ -1,5 +1,6 @@
 import { GAME_IDS } from './registry'
-import { createInitialState, isAllowedAction, step, stepReplay, verifyReplay, MAX_TICKS } from './replay'
+import { createInitialState, difficultyFor, isAllowedAction, SCORE_PER_LEVEL, step, stepReplay, verifyReplay,
+  MAX_TICKS, RULES_VERSION, SUPPORTED_RULES_VERSIONS } from './replay'
 import Tetris from '../games/tetris/tetris'
 
 const firstActions = {
@@ -12,6 +13,52 @@ const firstActions = {
 }
 
 describe('shared deterministic game engine', () => {
+  test.each(GAME_IDS)('%s difficulty rises at exact score milestones with menu choices as floors', gameId => {
+    const milestone = SCORE_PER_LEVEL[gameId]
+    expect(difficultyFor(gameId, milestone - 1)).toEqual({ level: 1, speed: 1 })
+    expect(difficultyFor(gameId, milestone)).toEqual({ level: 2, speed: 1 })
+    expect(difficultyFor(gameId, milestone * 2 - 1)).toEqual({ level: 2, speed: 1 })
+    expect(difficultyFor(gameId, milestone * 2)).toEqual({ level: 3, speed: 2 })
+    expect(difficultyFor(gameId, milestone * 2 - 1, 5, 4)).toEqual({ level: 6, speed: 4 })
+    expect(difficultyFor(gameId, milestone * 2, 5, 4)).toEqual({ level: 7, speed: 5 })
+    expect(difficultyFor(gameId, milestone * 4, 5, 4)).toEqual({ level: 9, speed: 6 })
+    expect(difficultyFor(gameId, milestone * 100, 5, 4)).toEqual({ level: 10, speed: 6 })
+  })
+
+  test('new runs use score-driven difficulty while legacy v2 sessions keep their original rules', () => {
+    expect(RULES_VERSION).toBe(3)
+    expect(SUPPORTED_RULES_VERSIONS).toEqual([2, 3])
+    const run = createInitialState('breakout', 7, 1)
+    run.game = { ...run.game, x: 4, y: 0, dx: -1, dy: 1, bricks: [[3, 1], [0, 9]] }
+    run.score = 500
+    run.autoMs = 250
+    const modern = step(run)
+    expect(modern.score).toBe(600)
+    expect([modern.currentLevel, modern.speed]).toEqual([3, 2])
+
+    const legacy = { ...run, rulesVersion: 2 }
+    const oldResult = step(legacy)
+    expect(oldResult.score).toBe(600)
+    expect([oldResult.currentLevel, oldResult.speed]).toEqual([1, 1])
+    expect(() => createInitialState('breakout', 7, 1, 1, 1)).toThrow('Invalid game session')
+  })
+
+  test('Tetris internal scoring level follows the score-driven LCD level in v3 only', () => {
+    const modern = createInitialState('tetris', 7, 1)
+    modern.game = { ...modern.game, score: SCORE_PER_LEVEL.tetris * 2 }
+    const advanced = step(modern)
+    expect(advanced.currentLevel).toBe(3)
+    expect(advanced.game.levels).toBe(3)
+    expect(advanced.speed).toBe(2)
+
+    const legacy = createInitialState('tetris', 7, 1, 1, 2)
+    legacy.game = { ...legacy.game, score: SCORE_PER_LEVEL.tetris * 2 }
+    const oldResult = step(legacy)
+    expect(oldResult.currentLevel).toBe(1)
+    expect(oldResult.game.levels).toBe(1)
+    expect(oldResult.speed).toBe(1)
+  })
+
   test.each(GAME_IDS)('%s starts and steps identically for the same seed', gameId => {
     const original = createInitialState(gameId, 123456789, 3)
     const snapshot = JSON.stringify(original)
@@ -56,6 +103,19 @@ describe('shared deterministic game engine', () => {
     })
     expect(() => verifyReplay({ gameId: 'snake', seed: 89, startLevel: 1, totalTicks: state.tick,
       events: [{ tick: 1, action: 'right' }] })).toThrow()
+  })
+
+  test('a v2 session can still finish against its original deterministic replay', () => {
+    let state = createInitialState('snake', 89, 1, 1, 2)
+    const events = [{ tick: 1, action: 'left' }]
+    while (!state.terminal && state.tick < 500) {
+      state = step(state, state.tick === 0 ? 'left' : null)
+    }
+    expect(state.terminal).toBe(true)
+    expect(verifyReplay({ gameId: 'snake', seed: 89, startLevel: 1, rulesVersion: 2,
+      totalTicks: state.tick, events })).toEqual({ terminal: true, rawScore: state.score })
+    expect(() => verifyReplay({ gameId: 'snake', seed: 89, startLevel: 1, rulesVersion: 1,
+      totalTicks: state.tick, events })).toThrow('Invalid game session')
   })
 
   test('pause consumes ticks without changing the game or score', () => {

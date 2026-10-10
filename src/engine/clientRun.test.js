@@ -5,7 +5,7 @@ import { finishDisplay, resetGame, startGame } from './clientRun'
 
 jest.mock('../api/client', () => ({ startRun: jest.fn(), finishRun: jest.fn() }))
 jest.mock('./replay', () => ({
-  RULES_VERSION: 2,
+  RULES_VERSION: 3,
   TICK_RATE: 20,
   MAX_TICKS: 12000,
   MAX_EVENTS: 1000,
@@ -14,7 +14,7 @@ jest.mock('./replay', () => ({
   isAllowedAction: () => true,
 }))
 
-const session = { runId: 'run-1', seed: 1, rulesVersion: 2, tickRate: 20, startSpeed: 1 }
+const session = { runId: 'run-1', seed: 1, rulesVersion: 3, tickRate: 20, startSpeed: 1 }
 
 beforeEach(() => {
   jest.useFakeTimers()

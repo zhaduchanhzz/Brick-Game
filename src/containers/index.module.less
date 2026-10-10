@@ -144,6 +144,54 @@
 .desktopLeaderboard > aside { min-height: 0; overflow-y: auto; }
 .desktopLeaderboard > .controlsPanel { flex: 0 0 auto; margin-top: 0; }
 .mobileLeaderboardButton, .mobileLeaderboardOverlay { display: none; }
+.mobileGuideButton { display: none; }
+.mobileGuideOverlay {
+  position: fixed;
+  z-index: 950;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(5, 12, 20, .82);
+}
+.mobileGuideContent {
+  width: min(100%, 440px);
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  border: 1px solid rgba(151, 186, 207, .42);
+  border-radius: 20px;
+  background: #132538;
+  box-shadow: 0 20px 65px rgba(0, 0, 0, .6);
+  color: #eff7fc;
+  overscroll-behavior: contain;
+}
+.mobileGuideHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(151, 186, 207, .42);
+}
+.mobileGuideHeader h2 { margin: 0; font-size: 19px; line-height: 1.2; }
+.mobileGuideClose {
+  flex: 0 0 auto;
+  min-width: 38px;
+  min-height: 38px;
+  border: 1px solid #7693ad;
+  border-radius: 9px;
+  color: #fff;
+  background: #233c55;
+  font: 400 26px/1 Arial, sans-serif;
+  cursor: pointer;
+}
+.mobileGuideBody { padding: 16px; }
+.mobileGuideBody section + section { margin-top: 18px; }
+.mobileGuideBody h3 { margin: 0 0 7px; color: #ffd46c; font-size: 14px; }
+.mobileGuideBody p { margin: 0; color: #d6e5ec; font-size: 13px; line-height: 1.5; }
+.mobileGuideBody > p { margin-top: 18px; }
+.mobileGuideButton:focus-visible, .mobileGuideClose:focus-visible { outline: 3px solid #ffdc7d; outline-offset: 3px; }
 
 @media (min-width: 1000px) and (max-width: 1199px) {
   .desktopLeaderboard > aside { padding: 16px; }
@@ -171,7 +219,7 @@
     padding: 0;
   }
   .brand { display: none; }
-  .toolbar { width: auto; max-width: none; flex-wrap: nowrap; gap: 6px; margin: 0 0 0 auto; }
+  .toolbar { width: 100%; max-width: none; flex-wrap: wrap; justify-content: flex-end; gap: 5px; margin: 0 0 0 auto; }
   .layout {
     display: flex;
     width: 100%;
@@ -203,6 +251,20 @@
     font-size: 12px;
     font-weight: 700;
     white-space: nowrap;
+    cursor: pointer;
+  }
+  .mobileGuideButton {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 42px;
+    width: 42px;
+    height: 42px;
+    border: 1px solid rgba(232, 245, 255, .45);
+    border-radius: 9px;
+    padding: 0;
+    color: #fff;
+    background: rgba(15, 28, 43, .78);
+    font: 700 22px/1 "Trebuchet MS", "Segoe UI", Arial, sans-serif;
     cursor: pointer;
   }
   .mobileLeaderboardOverlay {

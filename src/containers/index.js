@@ -80,6 +80,64 @@ export function MobileLeaderboard({ panelProps }) {
   )
 }
 
+export function MobileGuide() {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef(null)
+  const closeRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return undefined
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    closeRef.current.focus()
+    return () => {
+      document.body.style.overflow = previousOverflow
+      if (triggerRef.current) triggerRef.current.focus()
+    }
+  }, [open])
+
+  function onKeyDown(event) {
+    // Keep focus in the modal and prevent its keys from reaching game controls.
+    event.stopPropagation()
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+    } else if (event.key === 'Tab') {
+      event.preventDefault()
+      closeRef.current.focus()
+    }
+  }
+
+  return (
+    <>
+      <button ref={triggerRef} className={style.mobileGuideButton} data-testid="mobile-guide-button" type="button" title={t('app.mobileGuideButton')} aria-label={t('app.mobileGuideButton')} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>?</button>
+      {open && createPortal(
+        <div className={style.mobileGuideOverlay} onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false) }}>
+          <section className={style.mobileGuideContent} role="dialog" aria-modal="true" aria-labelledby="mobile-guide-title" onKeyDown={onKeyDown}>
+            <div className={style.mobileGuideHeader}>
+              <h2 id="mobile-guide-title">{t('app.mobileGuideTitle')}</h2>
+              <button ref={closeRef} className={style.mobileGuideClose} type="button" aria-label={t('app.closeGuide')} onClick={() => setOpen(false)}>×</button>
+            </div>
+            <div className={style.mobileGuideBody}>
+              <section>
+                <h3>{t('app.moveSelect')}</h3>
+                <p>{t('app.mobileGuideMove')}</p>
+              </section>
+              <section>
+                <h3>{t('app.actionSystem')}</h3>
+                <p>{t('app.mobileGuideAction')}</p>
+              </section>
+              <p>{t('app.mobileGuideGames')}</p>
+              <p>{t('app.mobileGuideDifficulty')}</p>
+            </div>
+          </section>
+        </div>, document.body,
+      )}
+    </>
+  )
+}
+
 export default function App() {
   const gameId = useSelector(state => state.games[state.game].name)
   const [theme, setTheme] = useState(loadTheme)
@@ -176,6 +234,7 @@ export default function App() {
               {keyboardMode === 'wasd' ? t('app.switchToArrows') : t('app.switchToWasd')}
             </button>
             <MobileLeaderboard panelProps={leaderboardProps} />
+            <MobileGuide />
           </div>
           <section id="movement-keyboard-guide" className={style.controlsPanel} aria-label={t('app.movementAria')} hidden={!guideVisible}>
             <span className={style.controlsKicker}>{t('app.desktopControls1')}</span>

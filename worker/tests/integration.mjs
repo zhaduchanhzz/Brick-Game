@@ -149,6 +149,14 @@ test('Worker D1, Durable Object claims, and WebSocket integration', { timeout: 1
         SELECT 'stale-${prefix}-' || n, 'stale-player', 'snake', 1, 1, 1, 1,
           'STARTED', ${oldAt}, ${oldAt + 600000} FROM seq;`], env);
     }
+    // A player who started under v2 must still be able to finish after v3 deploys.
+    const legacyRun = { runId: randomUUID(), playerId: randomUUID(), seed: 12345 };
+    await runCli(['d1', 'execute', 'brick-game-test-db', '--local', '--config', config,
+      '--persist-to', stateDir, '--command', `INSERT INTO run_sessions
+      (run_id, player_id, game_id, start_level, start_speed, seed, rules_version,
+       status, created_at, expires_at)
+      VALUES (${sqlText(legacyRun.runId)}, ${sqlText(legacyRun.playerId)}, 'snake',
+        1, 6, ${legacyRun.seed}, 2, 'STARTED', ${now}, ${now + 660000});`], env);
     dev = spawn(process.execPath, [wrangler, 'dev', '--config', config, '--persist-to', stateDir,
       '--port', String(port), '--var', `SESSION_SECRET:${secret}`, '--test-scheduled',
       '--show-interactive-dev-session', 'false'],
@@ -262,6 +270,24 @@ test('Worker D1, Durable Object claims, and WebSocket integration', { timeout: 1
     });
     const engineUrl = `data:text/javascript;base64,${Buffer.from(engineBundle.outputFiles[0].contents).toString('base64')}`;
     const engine = await import(engineUrl);
+    let legacyState = engine.createInitialState('snake', legacyRun.seed, 1, 6, 2);
+    while (!legacyState.terminal && legacyState.tick < engine.MAX_TICKS) {
+      legacyState = engine.step(legacyState, legacyState.tick === 0 ? 'left' : null);
+    }
+    assert.equal(legacyState.terminal, true);
+    const legacyRemainingMs = legacyState.tick * 1000 / engine.TICK_RATE - 3000 - (Date.now() - now) + 200;
+    if (legacyRemainingMs > 0) await new Promise(resolve => setTimeout(resolve, legacyRemainingMs));
+    const legacyLog = { rulesVersion: 2, totalTicks: legacyState.tick,
+      actions: [{ tick: 1, action: 'left' }] };
+    const legacyMismatch = await post(`/api/runs/${legacyRun.runId}/finish`,
+      { ...legacyLog, rulesVersion: 3 }, cookieFor(legacyRun.playerId));
+    assert.equal(legacyMismatch.status, 400);
+    const legacyFinish = await post(`/api/runs/${legacyRun.runId}/finish`,
+      legacyLog, cookieFor(legacyRun.playerId));
+    assert.equal(legacyFinish.status, 200);
+    const legacyVerified = await legacyFinish.json();
+    assert.equal(legacyVerified.rawScore, legacyState.score);
+    assert.equal(legacyVerified.finalScore, legacyState.score);
     let replayStartAt;
     let replaySession;
     let replayCookie;

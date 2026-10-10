@@ -1,5 +1,5 @@
 import { GAME_IDS } from '../../src/engine/registry.js';
-import { RULES_VERSION, TICK_RATE, MAX_TICKS, MAX_EVENTS, SUPPORTED_RANKED_GAMES, verifyReplay } from '../../src/engine/replay.js';
+import { RULES_VERSION, SUPPORTED_RULES_VERSIONS, TICK_RATE, MAX_TICKS, MAX_EVENTS, SUPPORTED_RANKED_GAMES, verifyReplay } from '../../src/engine/replay.js';
 import { HttpError, json, readJson } from './http';
 import { isEligible, validGameId } from './leaderboards';
 import { requestLocale } from './locale';
@@ -55,9 +55,9 @@ export async function startRun(request: Request, env: Env): Promise<Response> {
     201, visitor.cookie ? { 'Set-Cookie': visitor.cookie } : undefined);
 }
 
-function validateFinish(body: unknown, elapsedMs: number): { rulesVersion: number; totalTicks: number; events: { tick: number; action: string }[] } {
+function validateFinish(body: unknown, elapsedMs: number, rulesVersion: number): { rulesVersion: number; totalTicks: number; events: { tick: number; action: string }[] } {
   if (!objectWithKeys(body, ['rulesVersion', 'totalTicks', 'actions']) ||
-      body.rulesVersion !== RULES_VERSION || !Number.isInteger(body.totalTicks) ||
+      body.rulesVersion !== rulesVersion || !Number.isInteger(body.totalTicks) ||
       (body.totalTicks as number) < 1 || (body.totalTicks as number) > MAX_TICKS ||
       !Array.isArray(body.actions) || body.actions.length > MAX_EVENTS) {
     throw new HttpError(400, 'INVALID_REPLAY_SCHEMA');
@@ -76,7 +76,7 @@ function validateFinish(body: unknown, elapsedMs: number): { rulesVersion: numbe
     previousTick = event.tick as number;
     events.push({ tick: previousTick, action: event.action });
   }
-  return { rulesVersion: RULES_VERSION, totalTicks, events };
+  return { rulesVersion, totalTicks, events };
 }
 
 export async function finishRun(request: Request, env: Env, runId: string): Promise<Response> {
@@ -93,11 +93,11 @@ export async function finishRun(request: Request, env: Env, runId: string): Prom
   const now = Date.now();
   if (now > session.expires_at) throw new HttpError(409, 'RUN_EXPIRED');
   if (!validGameId(session.game_id) || !(GAME_IDS as readonly string[]).includes(session.game_id) ||
-      !(SUPPORTED_RANKED_GAMES as readonly string[]).includes(session.game_id) || session.rules_version !== RULES_VERSION) {
+      !(SUPPORTED_RANKED_GAMES as readonly string[]).includes(session.game_id) || !SUPPORTED_RULES_VERSIONS.includes(session.rules_version)) {
     throw new HttpError(409, 'RULES_VERSION_UNAVAILABLE');
   }
   const body = await readJson(request, MAX_BODY_BYTES);
-  const log = validateFinish(body, now - session.created_at);
+  const log = validateFinish(body, now - session.created_at, session.rules_version);
   let result: { terminal: boolean; rawScore: number };
   try {
     result = verifyReplay({
@@ -105,6 +105,7 @@ export async function finishRun(request: Request, env: Env, runId: string): Prom
       seed: session.seed,
       startLevel: session.start_level,
       startSpeed: session.start_speed,
+      rulesVersion: session.rules_version,
       totalTicks: log.totalTicks,
       events: log.events,
     });
@@ -125,7 +126,7 @@ export async function finishRun(request: Request, env: Env, runId: string): Prom
       env.DB.prepare(`INSERT INTO verified_runs
         (run_id, player_id, game_id, start_level, raw_score, final_score, rules_version, verified_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(runId, visitor, session.game_id, session.start_level, result.rawScore, finalScore, RULES_VERSION, now),
+        .bind(runId, visitor, session.game_id, session.start_level, result.rawScore, finalScore, session.rules_version, now),
       env.DB.prepare(`UPDATE run_sessions SET status = 'VERIFIED', verified_at = ?,
         verified_raw_score = ?, verified_final_score = ?, eligible_to_claim = ?
         WHERE run_id = ? AND status = 'STARTED'`)

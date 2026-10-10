@@ -8,7 +8,8 @@ import Racing, { createNewRacing, speeds as racingSpeeds } from '../games/racing
 import Breakout, { createNewBreakout, initPaddleY, initX, initY } from '../games/breakout/breakout'
 import Tank, { createNewTank } from '../games/tank/tank'
 
-export const RULES_VERSION = 2
+export const RULES_VERSION = 3
+export const SUPPORTED_RULES_VERSIONS = Object.freeze([2, RULES_VERSION])
 export const TICK_RATE = 20
 export const MAX_TICKS = 12000
 export const MAX_EVENTS = 6000
@@ -29,17 +30,38 @@ export const isAllowedAction = (gameId, action) => Boolean(actionsByGame[gameId]
 const validSeed = (seed) => Number.isInteger(Number(seed)) && Number(seed) > 0 && Number(seed) <= 0xffffffff
 const randomFor = (state) => () => nextRandom(state)
 const cloneGame = (game) => JSON.parse(JSON.stringify(game))
-const speedFor = (score) => Math.max(1, Math.min(6, Math.ceil(score / 3000)))
+const legacySpeedFor = (score) => Math.max(1, Math.min(6, Math.ceil(score / 3000)))
+// One milestone updates the LCD level; every two milestones increase the
+// simulation speed. Each game earns points at a different rate, so a shared
+// score threshold would leave shorter games at their starting difficulty.
+export const SCORE_PER_LEVEL = Object.freeze({
+  tank: 150,
+  tetris: 250,
+  snake: 150,
+  shooting: 200,
+  racing: 100,
+  breakout: 300
+})
+
+export const difficultyFor = (gameId, score, startLevel = 1, startSpeed = 1) => {
+  const milestone = SCORE_PER_LEVEL[gameId]
+  if (!milestone || !Number.isSafeInteger(score) || score < 0) throw new Error('Invalid game score')
+  return {
+    level: Math.min(MAX_LEVEL, startLevel + Math.floor(score / milestone)),
+    speed: Math.min(6, startSpeed + Math.floor(score / (milestone * 2)))
+  }
+}
 const breakoutSpeeds = [300, 275, 250, 225, 200, 175]
 const tankEnemyTicks = [20, 18, 16, 14, 12, 10]
 
-export const createInitialState = (gameId, seed, startLevel, startSpeed = 1) => {
+export const createInitialState = (gameId, seed, startLevel, startSpeed = 1, rulesVersion = RULES_VERSION) => {
   if (!GAME_IDS.includes(gameId) || !validSeed(seed) || !Number.isInteger(startLevel) || startLevel < 1 || startLevel > MAX_LEVEL ||
-      !Number.isInteger(startSpeed) || startSpeed < 1 || startSpeed > 6) {
+      !Number.isInteger(startSpeed) || startSpeed < 1 || startSpeed > 6 || !SUPPORTED_RULES_VERSIONS.includes(rulesVersion)) {
     throw new Error('Invalid game session')
   }
   const state = {
     gameId,
+    rulesVersion,
     tick: 0,
     startLevel,
     currentLevel: startLevel,
@@ -79,12 +101,12 @@ const moveTetris = (state, game, action, rng) => {
   const fullRows = game.matrix.filter(row => row.every(Boolean)).length
   if (fullRows > 0) {
     game.clear()
-    game.incLevels()
+    if (state.rulesVersion === 2) game.incLevels()
   }
   game.xy = [...originXY]
   game.shape = blockShape[game.next]
   game.next = Tetris.getNextType(rng)
-  state.currentLevel = game.levels
+  if (state.rulesVersion === 2) state.currentLevel = game.levels
   state.score = game.score
 }
 
@@ -95,7 +117,7 @@ const runSnake = (state, game) => {
   const ate = game.move()
   if (ate) {
     state.score += 100
-    state.currentLevel++
+    if (state.rulesVersion === 2) state.currentLevel++
     return true
   }
   if (game.getDeath()) return false
@@ -111,7 +133,7 @@ const runRacing = (state, game) => {
   game.run()
   if (game.death) return
   state.score += 10
-  state.currentLevel = Math.max(state.startLevel, state.score / 10)
+  if (state.rulesVersion === 2) state.currentLevel = Math.max(state.startLevel, state.score / 10)
 }
 
 const runBreakout = (state, game) => {
@@ -189,7 +211,7 @@ const advance = (state, action, copyGame) => {
     if (next.shotTicks > 0 && --next.shotTicks === 0) {
       if (game.shootStone()) {
         next.score += 100
-        next.currentLevel++
+        if (next.rulesVersion === 2) next.currentLevel++
       }
       game.stopShoot()
     }
@@ -254,7 +276,14 @@ const advance = (state, action, copyGame) => {
   }
   default: throw new Error('Unknown game')
   }
-  next.speed = Math.max(next.startSpeed, speedFor(next.score))
+  if (next.rulesVersion === 2) {
+    next.speed = Math.max(next.startSpeed, legacySpeedFor(next.score))
+  } else {
+    const difficulty = difficultyFor(next.gameId, next.score, next.startLevel, next.startSpeed)
+    next.currentLevel = difficulty.level
+    next.speed = difficulty.speed
+    if (next.gameId === 'tetris') game.levels = difficulty.level
+  }
   next.game = game.toJsObj()
   if (!Number.isSafeInteger(next.score) || next.score < 0) throw new Error('Invalid score')
   return next
@@ -265,11 +294,11 @@ const advance = (state, action, copyGame) => {
 export const step = (state, action = null) => advance(state, action, true)
 export const stepReplay = (state, action = null) => advance(state, action, false)
 
-export const verifyReplay = ({ gameId, seed, startLevel, startSpeed = 1, totalTicks, events }) => {
+export const verifyReplay = ({ gameId, seed, startLevel, startSpeed = 1, totalTicks, events, rulesVersion = RULES_VERSION }) => {
   if (!Number.isInteger(totalTicks) || totalTicks < 1 || totalTicks > MAX_TICKS || !Array.isArray(events) || events.length > MAX_EVENTS) {
     throw new Error('Invalid replay bounds')
   }
-  let state = createInitialState(gameId, seed, startLevel, startSpeed)
+  let state = createInitialState(gameId, seed, startLevel, startSpeed, rulesVersion)
   let eventIndex = 0
   let previousTick = 0
   for (const event of events) {

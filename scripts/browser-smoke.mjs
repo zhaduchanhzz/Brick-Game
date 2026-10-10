@@ -404,6 +404,7 @@ async function checkDesktopComposition(cdp, width, height) {
     const actionGuide = document.querySelector('[aria-label="Action and system keyboard controls"]')
     const guideToggle = document.querySelector('button[class*="guideToggle"]')
     const modeToggle = document.querySelector('button[data-testid="keyboard-mode-toggle"]')
+    const mobileGuideButton = document.querySelector('button[data-testid="mobile-guide-button"]')
     const themeButton = document.querySelector('button[aria-label="Change device"]')
     const bounds = element => {
       if (!element) return null
@@ -415,7 +416,8 @@ async function checkDesktopComposition(cdp, width, height) {
     }
     return { title: bounds(title), device: bounds(device), board: bounds(board), boardFrame: bounds(boardFrame),
       movementGuide: bounds(movementGuide), actionGuide: bounds(actionGuide),
-      guideToggle: bounds(guideToggle), modeToggle: bounds(modeToggle), themeButton: bounds(themeButton), guideExpanded: guideToggle?.getAttribute('aria-expanded'),
+      guideToggle: bounds(guideToggle), modeToggle: bounds(modeToggle), mobileGuideButton: bounds(mobileGuideButton),
+      themeButton: bounds(themeButton), guideExpanded: guideToggle?.getAttribute('aria-expanded'),
       guideLabel: guideToggle?.textContent?.trim(),
       guideControls: guideToggle?.getAttribute('aria-controls')?.split(' ').every(id => Boolean(document.getElementById(id))),
       actionKey: actionGuide?.textContent?.includes('Action / fire / rotate'),
@@ -423,6 +425,7 @@ async function checkDesktopComposition(cdp, width, height) {
   })()`)
   if (!layout.title?.visible || !layout.device?.visible || !layout.board?.visible || !layout.boardFrame?.visible ||
     !layout.movementGuide?.visible || !layout.actionGuide?.visible || !layout.guideToggle?.visible || !layout.modeToggle?.visible || !layout.themeButton?.visible ||
+    layout.mobileGuideButton?.visible ||
     layout.guideExpanded !== 'true' || layout.guideLabel !== 'Hide guide' || !layout.guideControls ||
     !layout.actionKey || !layout.changeDevice) {
     fail(`${width}x${height} desktop title, machine, leaderboard, or keyboard help is hidden: ${JSON.stringify(layout)}`)
@@ -546,6 +549,7 @@ async function checkMobileComposition(cdp, width, height) {
       })),
       themeButton: bounds(document.querySelector('button[aria-label="Change device"]')),
       topTenButton: bounds([...document.querySelectorAll('button')].find(button => button.textContent.includes('Top 10'))),
+      mobileGuideButton: bounds(document.querySelector('button[data-testid="mobile-guide-button"]')),
       guideToggle: bounds(document.querySelector('button[class*="guideToggle"]')),
       modeToggle: bounds(document.querySelector('button[data-testid="keyboard-mode-toggle"]')),
       themeHasDeviceIcon: Boolean(document.querySelector('button[aria-label="Change device"] svg')),
@@ -561,6 +565,9 @@ async function checkMobileComposition(cdp, width, height) {
   }
   if (!layout.modeToggle || layout.modeToggle.visible) {
     fail(`${width}x${height} mobile page exposes the WASD mode toggle: ${JSON.stringify(layout.modeToggle)}`)
+  }
+  if (!layout.mobileGuideButton?.visible) {
+    fail(`${width}x${height} mobile guide trigger is hidden: ${JSON.stringify(layout.mobileGuideButton)}`)
   }
   if (!layout.device?.visible || layout.device.width < Math.min(width * .8, height * .53) ||
     Math.abs((layout.device.left + layout.device.right) / 2 - width / 2) > Math.max(10, width * .03)) {
@@ -609,21 +616,24 @@ async function checkMobileComposition(cdp, width, height) {
     }
     layout.lcdToButtonGap = lcdToButtonGap
   }
-  for (const [name, button] of [['theme', layout.themeButton], ['Top 10', layout.topTenButton]]) {
+  for (const [name, button] of [['theme', layout.themeButton], ['Top 10', layout.topTenButton], ['guide', layout.mobileGuideButton]]) {
     if (!button?.visible || button.left < -1 || button.right > width + 1 || button.top < -1 || button.bottom > height + 1) {
       fail(`${width}x${height} mobile ${name} toolbar button is not visible inside the viewport: ${JSON.stringify(layout)}`)
     }
   }
   const near = (actual, expected) => Math.abs(actual - expected) <= 1
   if (!near(layout.themeButton.width, 136) || !near(layout.themeButton.height, 42) ||
-    !near(layout.topTenButton.width, 84) || !near(layout.topTenButton.height, 42)) {
-    fail(`${width}x${height} mobile toolbar buttons do not keep their fixed sizes: ${JSON.stringify({ theme: layout.themeButton, topTen: layout.topTenButton })}`)
+    !near(layout.topTenButton.width, 84) || !near(layout.topTenButton.height, 42) ||
+    !near(layout.mobileGuideButton.width, 42) || !near(layout.mobileGuideButton.height, 42)) {
+    fail(`${width}x${height} mobile toolbar buttons do not keep their fixed sizes: ${JSON.stringify({ theme: layout.themeButton, topTen: layout.topTenButton, guide: layout.mobileGuideButton })}`)
   }
   if (!layout.themeHasDeviceIcon || !layout.themeHasText || layout.themeHasOldPalette) {
     fail(`${width}x${height} theme trigger must show the game-device SVG instead of palette dots`)
   }
   const overlaps = (a, b) => a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1
-  if (overlaps(layout.themeButton, layout.topTenButton) || overlaps(layout.themeButton, layout.device) || overlaps(layout.topTenButton, layout.device)) {
+  if (overlaps(layout.themeButton, layout.topTenButton) || overlaps(layout.themeButton, layout.mobileGuideButton) ||
+    overlaps(layout.topTenButton, layout.mobileGuideButton) || overlaps(layout.themeButton, layout.device) ||
+    overlaps(layout.topTenButton, layout.device) || overlaps(layout.mobileGuideButton, layout.device)) {
     fail(`${width}x${height} mobile toolbar buttons overlap each other or the machine: ${JSON.stringify(layout)}`)
   }
   return layout
@@ -675,7 +685,58 @@ async function exerciseMobileOverlays(cdp, width, height) {
   const leaderboardScreenshot = await capture(cdp, `leaderboard-modal-${width}x${height}.png`, width)
   await clickButton(cdp, 'Close leaderboard')
   await until(() => cdp.eval(`document.querySelector('[role="dialog"]') === null`), Boolean, 'Top 10 overlay closed')
-  return { themeDialog, leaderboardDialog, themeScreenshot, leaderboardScreenshot }
+
+  await clickSelector(cdp, 'button[data-testid="mobile-guide-button"]', 'mobile guide')
+  const guideDialog = await until(() => cdp.eval(`(() => {
+    const element = document.querySelector('[role="dialog"][aria-labelledby="mobile-guide-title"]')
+    const trigger = document.querySelector('button[data-testid="mobile-guide-button"]')
+    const close = element?.querySelector('button[aria-label="Close guide"]')
+    if (!element) return null
+    const box = element.getBoundingClientRect()
+    return { left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+      scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+      title: element.querySelector('h2')?.textContent,
+      move: element.textContent.includes('Use the direction buttons to move'),
+      difficulty: element.textContent.includes('Difficulty rises automatically with your score'),
+      modal: element.getAttribute('aria-modal'), expanded: trigger?.getAttribute('aria-expanded'),
+      closeFocused: document.activeElement === close, bodyOverflow: document.body.style.overflow }
+  })()`), Boolean, 'mobile guide modal')
+  if (guideDialog.left < -1 || guideDialog.right > width + 1 || guideDialog.top < -1 ||
+    guideDialog.bottom > height + 1 || guideDialog.title !== 'How to play' || !guideDialog.move ||
+    !guideDialog.difficulty || guideDialog.modal !== 'true' || guideDialog.expanded !== 'true' ||
+    !guideDialog.closeFocused || guideDialog.bodyOverflow !== 'hidden') {
+    fail(`${width}px mobile guide modal is not accessible or does not fit: ${JSON.stringify(guideDialog)}`)
+  }
+  const guideScreenshot = await capture(cdp, `guide-modal-${width}x${height}.png`, width)
+  if (width === 320) await pressKey(cdp, 'Escape', 'Escape', 27)
+  else await clickButton(cdp, 'Close guide')
+  await until(() => cdp.eval(`(() => {
+    const trigger = document.querySelector('button[data-testid="mobile-guide-button"]')
+    return document.querySelector('[role="dialog"]') === null && trigger?.getAttribute('aria-expanded') === 'false' &&
+      document.activeElement === trigger && document.body.style.overflow === ''
+  })()`), Boolean, 'mobile guide closed and focus restored')
+  let vietnameseGuideScreenshot = null
+  if (width === 320) {
+    await chooseLocale(cdp, 'vi')
+    await clickSelector(cdp, 'button[data-testid="mobile-guide-button"]', 'Vietnamese mobile guide')
+    const vietnameseGuide = await until(() => cdp.eval(`(() => {
+      const dialog = document.querySelector('[role="dialog"][aria-labelledby="mobile-guide-title"]')
+      if (!dialog) return null
+      const box = dialog.getBoundingClientRect()
+      return { title: dialog.querySelector('h2')?.textContent, difficulty: dialog.textContent.includes('Độ khó tăng tự động theo điểm'),
+        left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+    })()`), Boolean, 'Vietnamese mobile guide')
+    if (vietnameseGuide.title !== 'Hướng dẫn chơi' || !vietnameseGuide.difficulty ||
+      vietnameseGuide.left < -1 || vietnameseGuide.right > width + 1 ||
+      vietnameseGuide.top < -1 || vietnameseGuide.bottom > height + 1) {
+      fail(`Vietnamese mobile guide does not fit 320x568: ${JSON.stringify(vietnameseGuide)}`)
+    }
+    vietnameseGuideScreenshot = await capture(cdp, 'guide-modal-vi-320x568.png', width)
+    await clickSelector(cdp, 'button[class*="mobileGuideClose"]', 'close Vietnamese mobile guide')
+    await until(() => cdp.eval(`document.querySelector('[role="dialog"]') === null`), Boolean, 'Vietnamese guide closed')
+    await chooseLocale(cdp, 'en')
+  }
+  return { themeDialog, leaderboardDialog, guideDialog, themeScreenshot, leaderboardScreenshot, guideScreenshot, vietnameseGuideScreenshot }
 }
 
 async function capture(cdp, filename, width) {
