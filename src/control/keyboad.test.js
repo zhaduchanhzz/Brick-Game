@@ -1,5 +1,7 @@
 import control from '.'
 import store from '../store'
+import { getKeyboardMode, setKeyboardMode } from './keyboardMode'
+import { subscribeKeyboardFeedback } from './keyboardFeedback'
 import './keyboad'
 
 jest.mock('../store', () => ({
@@ -10,13 +12,16 @@ jest.mock('../store', () => ({
 jest.mock('.', () => ({
   __esModule: true,
   default: {
-    todo: { left: jest.fn(), down: jest.fn(), rotate: jest.fn(), p: jest.fn(), r: jest.fn(), s: jest.fn() },
+    todo: { left: jest.fn(), up: jest.fn(), right: jest.fn(), down: jest.fn(), rotate: jest.fn(), p: jest.fn(), r: jest.fn(), s: jest.fn() },
     tetris: { rotate: jest.fn() },
     clearLoop: jest.fn(),
   },
 }))
 
-beforeEach(() => store.getState.mockReturnValue({ pause: 0, game: 0 }))
+beforeEach(() => {
+  setKeyboardMode('arrows')
+  store.getState.mockReturnValue({ pause: 0, game: 0 })
+})
 
 function keyEvent(target, name, key, keyCode, options = {}) {
   const event = new KeyboardEvent(name, { key, bubbles: true, cancelable: true, ...options })
@@ -133,4 +138,65 @@ test('modern key and code work without keyCode, with legacy fallback', () => {
   keyEvent(document.body, 'keydown', 'ArrowDown', 0)
   expect(control.todo.down).toHaveBeenCalledTimes(1)
   keyEvent(document.body, 'keyup', 'ArrowDown', 0)
+})
+
+test('WASD replaces arrows and S becomes down while M controls sound', () => {
+  setKeyboardMode('wasd')
+  expect(getKeyboardMode()).toBe('wasd')
+  for (const [key, code, keyCode, type] of [
+    ['w', 'KeyW', 87, 'up'], ['a', 'KeyA', 65, 'left'],
+    ['s', 'KeyS', 83, 'down'], ['d', 'KeyD', 68, 'right'],
+  ]) {
+    const event = keyEvent(document.body, 'keydown', key, keyCode, { code })
+    expect(event.defaultPrevented).toBe(true)
+    expect(control.todo[type]).toHaveBeenCalledTimes(1)
+    keyEvent(document.body, 'keyup', key, keyCode, { code })
+  }
+  expect(control.todo.s).not.toHaveBeenCalled()
+  const oldArrow = keyEvent(document.body, 'keydown', 'ArrowDown', 40, { code: 'ArrowDown' })
+  expect(oldArrow.defaultPrevented).toBe(false)
+  expect(control.todo.down).toHaveBeenCalledTimes(1)
+  const sound = keyEvent(document.body, 'keydown', 'm', 77, { code: 'KeyM' })
+  expect(sound.defaultPrevented).toBe(true)
+  expect(control.todo.s).toHaveBeenCalledTimes(1)
+  keyEvent(document.body, 'keyup', 'm', 77, { code: 'KeyM' })
+})
+
+test('S remains sound in arrow mode', () => {
+  const sound = keyEvent(document.body, 'keydown', 's', 83, { code: 'KeyS' })
+  expect(sound.defaultPrevented).toBe(true)
+  expect(control.todo.s).toHaveBeenCalledTimes(1)
+  expect(control.todo.down).not.toHaveBeenCalled()
+  keyEvent(document.body, 'keyup', 's', 83, { code: 'KeyS' })
+})
+
+test('switching mode or losing window focus releases held key and button feedback', () => {
+  const feedback = []
+  const unsubscribe = subscribeKeyboardFeedback((type, pressed) => feedback.push([type, pressed]))
+  keyEvent(document.body, 'keydown', 'ArrowDown', 40, { code: 'ArrowDown' })
+  setKeyboardMode('wasd')
+  expect(feedback).toEqual([['down', true], ['down', false]])
+  expect(control.clearLoop).toHaveBeenCalledTimes(1)
+  keyEvent(document.body, 'keydown', 'a', 65, { code: 'KeyA' })
+  window.dispatchEvent(new Event('blur'))
+  expect(feedback.slice(-2)).toEqual([['left', true], ['left', false]])
+  expect(control.clearLoop).toHaveBeenCalledTimes(2)
+  unsubscribe()
+})
+
+test('opening a modal releases a held movement key', () => {
+  const feedback = []
+  const unsubscribe = subscribeKeyboardFeedback((type, pressed) => feedback.push([type, pressed]))
+  keyEvent(document.body, 'keydown', 'ArrowDown', 40, { code: 'ArrowDown' })
+  const dialog = document.createElement('section')
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+  const close = document.createElement('button')
+  dialog.appendChild(close)
+  document.body.appendChild(dialog)
+  close.focus()
+  expect(feedback).toEqual([['down', true], ['down', false]])
+  expect(control.clearLoop).toHaveBeenCalledTimes(1)
+  dialog.remove()
+  unsubscribe()
 })

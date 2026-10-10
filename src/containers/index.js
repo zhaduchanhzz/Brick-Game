@@ -10,6 +10,7 @@ import useLeaderboardSync from '../hooks/useLeaderboardSync'
 import { subscribeVerifiedRun } from '../api/runResults'
 import { publishRunMode, subscribeRunMode } from '../api/runMode'
 import { COLOR_FIELDS, DEFAULT_PRESET_ID, THEME_STORAGE_VERSION, isHexColor, loadTheme, resolveTheme, saveTheme, themeVariables } from '../theme/presets'
+import { getKeyboardMode, setKeyboardMode, subscribeKeyboardMode } from '../control/keyboardMode'
 import style from './index.module.less'
 
 const COLOR_KEYS = new Set(COLOR_FIELDS.map(([key]) => key))
@@ -84,6 +85,7 @@ export default function App() {
   const [claimCandidate, setClaimCandidate] = useState(null)
   const [runMode, setRunMode] = useState({ mode: 'idle' })
   const [guideVisible, setGuideVisible] = useState(loadGuideVisibility)
+  const [keyboardMode, setKeyboardModeState] = useState(getKeyboardMode)
   const gameMainRef = useRef(null)
   const leaderboard = useLeaderboardSync()
   const resolvedTheme = resolveTheme(theme)
@@ -91,6 +93,7 @@ export default function App() {
   const leaderboardProps = { gameId, board, status: leaderboard.status, connection: leaderboard.connection, error: leaderboard.error, onRetry: leaderboard.retry, lastVerified }
 
   useEffect(() => saveTheme(theme), [theme])
+  useEffect(() => subscribeKeyboardMode(setKeyboardModeState), [])
   useEffect(() => {
     try {
       window.localStorage.setItem(GUIDE_STORAGE_KEY, String(guideVisible))
@@ -152,24 +155,29 @@ export default function App() {
         {runMode.mode !== 'idle' && <div className={style.runNotice}><RunModeNotice runMode={runMode} /></div>}
         <div className={style.toolbar}>
           <ThemeDialog theme={theme} onColorChange={changeColor} onPresetChange={choosePreset} onReset={resetTheme} />
-          <button className={style.guideToggle} type="button" aria-controls="movement-keyboard-guide action-keyboard-guide" aria-expanded={guideVisible} onClick={() => setGuideVisible(visible => !visible)}>
+          <button className={`${style.toolbarToggle} ${style.guideToggle}`} type="button" aria-controls="movement-keyboard-guide action-keyboard-guide" aria-expanded={guideVisible} onClick={() => setGuideVisible(visible => !visible)}>
             {guideVisible ? 'Hide guide' : 'Show guide'}
+          </button>
+          <button className={`${style.toolbarToggle} ${style.modeToggle}`} type="button" aria-label="WASD movement" aria-pressed={keyboardMode === 'wasd'} onClick={() => setKeyboardMode(keyboardMode === 'wasd' ? 'arrows' : 'wasd')}>
+            {keyboardMode === 'wasd' ? 'Switch to arrows' : 'Switch to WASD'}
           </button>
           <MobileLeaderboard panelProps={leaderboardProps} />
         </div>
         <section id="movement-keyboard-guide" className={style.controlsPanel} aria-label="Movement keyboard controls" hidden={!guideVisible}>
           <span className={style.controlsKicker}>DESKTOP CONTROLS / 01</span>
           <h2>Move &amp; select</h2>
-          <div className={style.directionKeys} aria-label="Arrow keys">
-            <kbd>↑</kbd>
-            <div><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></div>
+          <div className={style.directionKeys} aria-label={keyboardMode === 'wasd' ? 'WASD keys' : 'Arrow keys'}>
+            <kbd>{keyboardMode === 'wasd' ? 'W' : '↑'}</kbd>
+            <div><kbd>{keyboardMode === 'wasd' ? 'A' : '←'}</kbd><kbd>{keyboardMode === 'wasd' ? 'S' : '↓'}</kbd><kbd>{keyboardMode === 'wasd' ? 'D' : '→'}</kbd></div>
           </div>
-          <p>Arrow keys move or steer while playing. On the menu, <kbd>←</kbd><kbd>→</kbd> set speed and <kbd>↑</kbd><kbd>↓</kbd> set level.</p>
+          {keyboardMode === 'wasd'
+            ? <p>WASD moves or steers while playing. On the menu, <kbd>A</kbd><kbd>D</kbd> set speed and <kbd>W</kbd><kbd>S</kbd> set level.</p>
+            : <p>Arrow keys move or steer while playing. On the menu, <kbd>←</kbd><kbd>→</kbd> set speed and <kbd>↑</kbd><kbd>↓</kbd> set level.</p>}
         </section>
       </header>
       <div className={style.layout}>
         <main ref={gameMainRef} tabIndex={-1} className={style.gameColumn} aria-label="Brick Game machine">
-          <GameDevice shape={resolvedTheme.shape} />
+          <GameDevice shape={resolvedTheme.shape} keyboardMode={keyboardMode} />
         </main>
         <div className={style.desktopLeaderboard}>
           <LeaderboardPanel {...leaderboardProps} />
@@ -178,7 +186,7 @@ export default function App() {
             <h2>Action &amp; system</h2>
             <div className={style.shortcutRow}><kbd>X</kbd><span>Action / fire / rotate*</span></div>
             <div className={style.shortcutRow}><kbd>P</kbd><span>Start / pause</span></div>
-            <div className={style.shortcutRow}><kbd>R</kbd><span>Reset</span><kbd>S</kbd><span>Sound</span></div>
+            <div className={style.shortcutRow}><kbd>R</kbd><span>Reset</span><kbd>{keyboardMode === 'wasd' ? 'M' : 'S'}</kbd><span>Sound</span></div>
             <p><kbd>Space</kbd> or <kbd>X</kbd> selects the next game on the menu. Space also acts in-game when no button is focused. *Action is used in Tetris, Tank and Shooting.</p>
           </section>
         </div>

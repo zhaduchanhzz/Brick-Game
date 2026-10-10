@@ -3,7 +3,7 @@ import style from './index.module.less'
 import Button from './button'
 import PropTypes from 'prop-types'
 
-const Keyboard = ({ filling, scale = 1 }) => {
+const Keyboard = ({ filling, scale = 1, keyboardMode = 'arrows' }) => {
   // The right-hand buttons move inward as their circles grow. This preserves
   // their spacing while keeping the full keyboard inside a narrow case.
   const compact = Math.max(0, Math.min(1, (scale - 1) / .15))
@@ -76,7 +76,7 @@ const Keyboard = ({ filling, scale = 1 }) => {
         size="s2"
         top={0}
         left={420 - 60 * compact}
-        label="SOUND(S)"
+        label={keyboardMode === 'wasd' ? 'SOUND(M)' : 'SOUND(S)'}
         type="s"
       />
       <Button
@@ -94,6 +94,7 @@ const Keyboard = ({ filling, scale = 1 }) => {
 Keyboard.propTypes = {
   filling: PropTypes.number.isRequired,
   scale: PropTypes.number,
+  keyboardMode: PropTypes.oneOf(['arrows', 'wasd']),
 }
 
 export default Keyboard

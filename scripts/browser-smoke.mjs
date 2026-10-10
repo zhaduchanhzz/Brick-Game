@@ -109,6 +109,53 @@ async function pressKey(cdp, key, code, keyCode) {
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...params })
 }
 
+async function pressKeyWithFeedback(cdp, key, code, keyCode, label) {
+  const selector = `button[aria-label=${JSON.stringify(label)}] i`
+  // The physical button has a short release animation; measure from its resting state.
+  await sleep(110)
+  const before = await cdp.eval(`(() => {
+    const icon = document.querySelector(${JSON.stringify(selector)})
+    return icon && { active: icon.className.includes('active'), transform: getComputedStyle(icon).transform }
+  })()`)
+  if (!before || before.active) fail(`${label} is missing or was already pressed before ${code}`)
+  const params = { key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode }
+  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...params })
+  let held
+  try {
+    await until(() => cdp.eval(`document.querySelector(${JSON.stringify(selector)})?.className.includes('active')`),
+      Boolean, `${code} presses ${label}`)
+    await sleep(110)
+    held = await cdp.eval(`(() => {
+      const icon = document.querySelector(${JSON.stringify(selector)})
+      return icon && { active: icon.className.includes('active'), transform: getComputedStyle(icon).transform }
+    })()`)
+  } finally {
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...params })
+  }
+  if (!held?.active || held.transform === before.transform || held.transform === 'none') {
+    fail(`${code} did not visibly depress ${label}: ${JSON.stringify({ before, held })}`)
+  }
+  await until(() => cdp.eval(`!document.querySelector(${JSON.stringify(selector)})?.className.includes('active')`),
+    Boolean, `${code} releases ${label}`)
+  return held.transform
+}
+
+async function keyboardModeState(cdp) {
+  return cdp.eval(`(() => {
+    const button = document.querySelector('button[aria-label="WASD movement"]')
+    const guide = document.querySelector('[aria-label="Movement keyboard controls"]')
+    const keys = guide?.querySelector('[class*="directionKeys"]')
+    const action = document.querySelector('[aria-label="Action and system keyboard controls"]')
+    const box = button?.getBoundingClientRect()
+    return { visible: Boolean(box?.width && box?.height && getComputedStyle(button).display !== 'none'),
+      pressed: button?.getAttribute('aria-pressed'), text: button?.textContent?.trim(),
+      stored: localStorage.getItem('brick-game-keyboard-mode'),
+      keyLabel: keys?.getAttribute('aria-label'), keyText: keys?.textContent?.trim(),
+      soundButton: Boolean(document.querySelector('button[aria-label="SOUND(M)"]')),
+      soundGuide: action?.textContent?.includes('M') }
+  })()`)
+}
+
 async function gameLabel(cdp) {
   return cdp.eval(`document.querySelector('[class*="gameTitle"] strong')?.textContent?.trim().toLowerCase() || null`)
 }
@@ -165,6 +212,7 @@ async function checkDesktopComposition(cdp, width, height) {
     const movementGuide = document.querySelector('[aria-label="Movement keyboard controls"]')
     const actionGuide = document.querySelector('[aria-label="Action and system keyboard controls"]')
     const guideToggle = document.querySelector('button[class*="guideToggle"]')
+    const modeToggle = document.querySelector('button[aria-label="WASD movement"]')
     const themeButton = document.querySelector('button[aria-label="Change device"]')
     const bounds = element => {
       if (!element) return null
@@ -176,14 +224,14 @@ async function checkDesktopComposition(cdp, width, height) {
     }
     return { title: bounds(title), device: bounds(device), board: bounds(board), boardFrame: bounds(boardFrame),
       movementGuide: bounds(movementGuide), actionGuide: bounds(actionGuide),
-      guideToggle: bounds(guideToggle), themeButton: bounds(themeButton), guideExpanded: guideToggle?.getAttribute('aria-expanded'),
+      guideToggle: bounds(guideToggle), modeToggle: bounds(modeToggle), themeButton: bounds(themeButton), guideExpanded: guideToggle?.getAttribute('aria-expanded'),
       guideLabel: guideToggle?.textContent?.trim(),
       guideControls: guideToggle?.getAttribute('aria-controls')?.split(' ').every(id => Boolean(document.getElementById(id))),
       actionKey: actionGuide?.textContent?.includes('Action / fire / rotate'),
       changeDevice: themeButton?.textContent?.includes('Change device') }
   })()`)
   if (!layout.title?.visible || !layout.device?.visible || !layout.board?.visible || !layout.boardFrame?.visible ||
-    !layout.movementGuide?.visible || !layout.actionGuide?.visible || !layout.guideToggle?.visible || !layout.themeButton?.visible ||
+    !layout.movementGuide?.visible || !layout.actionGuide?.visible || !layout.guideToggle?.visible || !layout.modeToggle?.visible || !layout.themeButton?.visible ||
     layout.guideExpanded !== 'true' || layout.guideLabel !== 'Hide guide' || !layout.guideControls ||
     !layout.actionKey || !layout.changeDevice) {
     fail(`${width}x${height} desktop title, machine, leaderboard, or keyboard help is hidden: ${JSON.stringify(layout)}`)
@@ -201,6 +249,7 @@ async function checkDesktopComposition(cdp, width, height) {
   if (layout.title.left < -1 || layout.title.top < -1 || layout.title.bottom > height + 1 ||
     layout.movementGuide.left < -1 || layout.movementGuide.bottom > height + 1 || layout.actionGuide.bottom > height + 1 ||
     layout.guideToggle.left < -1 || layout.guideToggle.right > layout.device.left - gap || layout.guideToggle.bottom > height + 1 ||
+    layout.modeToggle.left < -1 || layout.modeToggle.right > layout.device.left - gap || layout.modeToggle.bottom > height + 1 ||
     layout.themeButton.left < -1 || layout.themeButton.right > layout.device.left - gap || layout.themeButton.bottom > height + 1 ||
     layout.boardFrame.right > width + 1 || layout.boardFrame.top < -1 || layout.boardFrame.bottom > height + 1) {
     fail(`${width}x${height} desktop side content exceeds the viewport: ${JSON.stringify(layout)}`)
@@ -307,6 +356,7 @@ async function checkMobileComposition(cdp, width, height) {
       themeButton: bounds(document.querySelector('button[aria-label="Change device"]')),
       topTenButton: bounds([...document.querySelectorAll('button')].find(button => button.textContent.includes('Top 10'))),
       guideToggle: bounds(document.querySelector('button[class*="guideToggle"]')),
+      modeToggle: bounds(document.querySelector('button[aria-label="WASD movement"]')),
       themeHasDeviceIcon: Boolean(document.querySelector('button[aria-label="Change device"] svg')),
       themeHasText: document.querySelector('button[aria-label="Change device"] span')?.textContent === 'Change device',
       themeHasOldPalette: Boolean(document.querySelector('button[aria-label="Change device"] [class*="triggerPalette"]'))
@@ -317,6 +367,9 @@ async function checkMobileComposition(cdp, width, height) {
   }
   if (!layout.guideToggle || layout.guideToggle.visible) {
     fail(`${width}x${height} mobile page exposes the desktop guide toggle: ${JSON.stringify(layout.guideToggle)}`)
+  }
+  if (!layout.modeToggle || layout.modeToggle.visible) {
+    fail(`${width}x${height} mobile page exposes the WASD mode toggle: ${JSON.stringify(layout.modeToggle)}`)
   }
   if (!layout.device?.visible || layout.device.width < Math.min(width * .8, height * .53) ||
     Math.abs((layout.device.left + layout.device.right) / 2 - width / 2) > Math.max(10, width * .03)) {
@@ -558,21 +611,64 @@ async function exerciseAllGames(cdp, network, bootstrapRequestCount) {
   return exercised
 }
 
+async function exerciseKeyboardMode(cdp) {
+  const initial = await keyboardModeState(cdp)
+  if (!initial.visible || initial.pressed !== 'false' || initial.text !== 'Switch to WASD' ||
+    initial.keyLabel !== 'Arrow keys') {
+    fail(`Desktop keyboard mode did not start with arrows: ${JSON.stringify(initial)}`)
+  }
+  await clickButton(cdp, 'WASD movement')
+  const wasd = await until(() => keyboardModeState(cdp), state => state.visible &&
+    state.pressed === 'true' && state.text === 'Switch to arrows' && state.stored === 'wasd' &&
+    state.keyLabel === 'WASD keys' && state.keyText === 'WASD' && state.soundButton && state.soundGuide,
+  'WASD toggle, guide, and sound shortcut')
+
+  await pressKeyWithFeedback(cdp, 'w', 'KeyW', 87, 'QUICK')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="Level 2"]') !== null`), Boolean, 'W selects level 2')
+  await pressKeyWithFeedback(cdp, 'd', 'KeyD', 68, 'RIGHT')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 2"]') !== null`), Boolean, 'D selects speed 2')
+  await pressKeyWithFeedback(cdp, 'a', 'KeyA', 65, 'LEFT')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 1"]') !== null`), Boolean, 'A restores speed 1')
+  const soundBeforeS = await cdp.eval(`document.querySelector('[role="img"][aria-label^="Sound "]')?.getAttribute('aria-label')`)
+  await pressKeyWithFeedback(cdp, 's', 'KeyS', 83, 'DOWN')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="Level 1"]') !== null`), Boolean, 'S restores level 1')
+  const soundAfterS = await cdp.eval(`document.querySelector('[role="img"][aria-label^="Sound "]')?.getAttribute('aria-label')`)
+  if (!soundBeforeS || soundAfterS !== soundBeforeS) fail('S changed sound instead of moving down in WASD mode')
+  await pressKey(cdp, 'ArrowRight', 'ArrowRight', 39)
+  const ignoredArrow = await cdp.eval(`({ speed1: document.querySelector('[aria-label="Speed 1"]') !== null,
+    visual: document.querySelector('button[aria-label="RIGHT"] i')?.className.includes('active') })`)
+  if (!ignoredArrow.speed1 || ignoredArrow.visual) fail(`Arrow key remained active in WASD mode: ${JSON.stringify(ignoredArrow)}`)
+  await pressKeyWithFeedback(cdp, 'm', 'KeyM', 77, 'SOUND(M)')
+  const soundAfterM = await cdp.eval(`document.querySelector('[role="img"][aria-label^="Sound "]')?.getAttribute('aria-label')`)
+  if (soundAfterM === soundBeforeS) fail('M did not toggle sound in WASD mode')
+  await pressKeyWithFeedback(cdp, 'm', 'KeyM', 77, 'SOUND(M)')
+
+  await clickButton(cdp, 'WASD movement')
+  const arrows = await until(() => keyboardModeState(cdp), state => state.pressed === 'false' &&
+    state.text === 'Switch to WASD' && state.stored === 'arrows' && state.keyLabel === 'Arrow keys' &&
+    !state.soundButton, 'restored arrow mode')
+  await pressKeyWithFeedback(cdp, 'ArrowRight', 'ArrowRight', 39, 'RIGHT')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 2"]') !== null`), Boolean, 'arrow mode speed 2')
+  await pressKeyWithFeedback(cdp, 'ArrowLeft', 'ArrowLeft', 37, 'LEFT')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 1"]') !== null`), Boolean, 'arrow mode restored speed 1')
+  return { wasd, arrows, keys: ['W', 'A', 'S', 'D', 'M', 'ArrowRight', 'ArrowLeft'], soundConflictAvoided: true }
+}
+
 async function exerciseDesktopKeyboard(cdp) {
   await clickButton(cdp, 'LEFT')
   const focused = await cdp.eval(`document.activeElement?.getAttribute('aria-label')`)
   if (focused !== 'LEFT') fail(`Machine button did not retain focus for keyboard regression test: ${focused}`)
-  await pressKey(cdp, 'ArrowRight', 'ArrowRight', 39)
+  await pressKeyWithFeedback(cdp, 'ArrowRight', 'ArrowRight', 39, 'RIGHT')
   await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 2"]') !== null`), Boolean,
     'ArrowRight from focused machine button')
-  await pressKey(cdp, 'x', 'KeyX', 88)
+  await pressKeyWithFeedback(cdp, 'x', 'KeyX', 88, 'ROTATE DIRECTION')
   await until(() => gameLabel(cdp), value => value === 'tetris', 'X action from focused machine button')
-  for (let index = 0; index < 5; index++) await pressKey(cdp, 'x', 'KeyX', 88)
+  for (let index = 0; index < 5; index++) await pressKeyWithFeedback(cdp, 'x', 'KeyX', 88, 'ROTATE DIRECTION')
   await until(() => gameLabel(cdp), value => value === 'tank', 'X cycling back to Tank')
-  await pressKey(cdp, 'p', 'KeyP', 80)
+  await pressKeyWithFeedback(cdp, 'p', 'KeyP', 80, 'START(P)')
   await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Playing"]') !== null`),
     Boolean, 'P start from focused machine button')
-  await pressKey(cdp, 'r', 'KeyR', 82)
+  await pressKeyWithFeedback(cdp, 'r', 'KeyR', 82, 'RESET(R)')
   await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Ready"]') !== null`),
     Boolean, 'R reset from focused machine button')
   return { focusedButton: focused, arrowSpeed: 2, action: 'X', start: 'P', reset: 'R' }
@@ -624,6 +720,7 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
   }
 
   const overlays = mobile ? await exerciseMobileOverlays(cdp, width, height) : null
+  const keyboardMode = mobile ? null : await exerciseKeyboardMode(cdp)
 
   for (let i = 1; i <= GAME_IDS.length; i++) {
     await clickButton(cdp, 'ROTATE DIRECTION')
@@ -675,20 +772,30 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
   if (after.document > width + 1 || after.body > width + 1) fail(`${width}px overflow after game controls: ${JSON.stringify(after)}`)
   const screenshot = await capture(cdp, `${mobile ? 'mobile' : 'desktop'}-${width}x${height}.png`, width)
   let retroReloadGets = null
+  let persistedKeyboardMode = null
   if (!mobile) {
     const beforeReload = network.leaderboardRequests.length
+    await clickButton(cdp, 'WASD movement')
+    await until(() => keyboardModeState(cdp), state => state.stored === 'wasd' && state.pressed === 'true',
+      'WASD mode before reload')
     await cdp.send('Page.reload', { ignoreCache: true })
     await until(() => gameLabel(cdp), value => value === 'tank', 'retro reload game menu')
     await until(() => cdp.eval(`document.querySelector('main [class*="GameDevice_retro"]') !== null &&
       document.querySelector('main [class*="GameDevice_modelMark"]')?.textContent?.includes('E-23')`), Boolean, 'persisted Retro Cream theme')
     const stored = await cdp.eval(`JSON.parse(localStorage.getItem('brick-game-theme') || '{}').presetId`)
     if (stored !== 'retro-cream') fail(`Retro Cream localStorage was not preserved: ${stored}`)
+    persistedKeyboardMode = await until(() => keyboardModeState(cdp), state => state.pressed === 'true' &&
+      state.text === 'Switch to arrows' && state.stored === 'wasd' && state.keyLabel === 'WASD keys' &&
+      state.soundButton, 'persisted WASD mode after reload')
+    await clickButton(cdp, 'WASD movement')
+    await until(() => keyboardModeState(cdp), state => state.pressed === 'false' && state.stored === 'arrows',
+      'arrow mode restored after reload')
     await until(() => Promise.resolve(network.leaderboardRequests.length), value => value > beforeReload, 'retro reload bootstrap GET')
     retroReloadGets = network.leaderboardRequests.length - beforeReload
     if (retroReloadGets !== 1) fail(`Retro reload made ${retroReloadGets} leaderboard GETs`)
   }
-  return { viewport: `${width}x${height}`, dimensions: after, deviceRect, composition, guideToggle, overlays, bootstrapGets: bootRequests,
-    webSocketStatus: 101, switchingGets: 0, exercisedGames, desktopKeyboard, lcdFeedback, screenshot, retroScreenshot, retroReloadGets }
+  return { viewport: `${width}x${height}`, dimensions: after, deviceRect, composition, guideToggle, keyboardMode, overlays, bootstrapGets: bootRequests,
+    webSocketStatus: 101, switchingGets: 0, exercisedGames, desktopKeyboard, lcdFeedback, screenshot, retroScreenshot, retroReloadGets, persistedKeyboardMode }
 }
 
 async function runRankedSnake(cdp, network) {

@@ -18,7 +18,7 @@ import style from './GameDevice.module.less'
 const DEVICE_WIDTH = 640
 const DEVICE_HEIGHT = 960
 
-export default function GameDevice({ shape }) {
+export default function GameDevice({ shape, keyboardMode }) {
   const { levels, speed, music, pause, game, games } = useSelector(state => state)
   const stageRef = useRef(null)
   const [machine, setMachine] = useState({ scale: 1, height: DEVICE_HEIGHT })
@@ -98,7 +98,7 @@ export default function GameDevice({ shape }) {
               </div>
             </div>
           </div>
-          <div className={style.controlsDock}><Keyboard filling={-16} scale={contentScale} /></div>
+          <div className={style.controlsDock}><Keyboard filling={-16} scale={contentScale} keyboardMode={keyboardMode} /></div>
           {shape === 'retro-e23' && <div className={style.modelMark}>E-23 · 2 IN 1</div>}
         </div>
       </div>
