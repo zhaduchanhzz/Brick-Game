@@ -165,6 +165,31 @@ test('Worker D1, Durable Object claims, and WebSocket integration', { timeout: 1
     assert.equal(initial.games.tank.entries.length, 0);
     assert.equal((await fetch(`${origin}/api/leaderboards?gameId=unknown`)).status, 400);
     assert.equal((await fetch(`${origin}/api/leaderboards?gameId=`)).status, 400);
+    const defaultLocaleError = await fetch(`${origin}/api/leaderboards?gameId=unknown`);
+    assert.equal(defaultLocaleError.headers.get('Content-Language'), 'vi');
+    assert.deepEqual(await defaultLocaleError.json(), {
+      error: 'INVALID_GAME_ID', message: 'Trò chơi không hợp lệ.',
+    });
+    const englishError = await fetch(`${origin}/api/leaderboards?gameId=unknown`, {
+      headers: { 'Accept-Language': 'en-US,en;q=0.8,vi;q=0.5' },
+    });
+    assert.equal(englishError.headers.get('Content-Language'), 'en');
+    assert.deepEqual(await englishError.json(), {
+      error: 'INVALID_GAME_ID', message: 'Invalid game.',
+    });
+    assert.match(englishError.headers.get('Vary'), /Accept-Language/);
+    const chineseError = await fetch(`${origin}/api/leaderboards?gameId=unknown`, {
+      headers: { 'Accept-Language': 'en; q=0.5, zh-CN; q=0.9' },
+    });
+    assert.equal(chineseError.headers.get('Content-Language'), 'zh-CN');
+    assert.deepEqual(await chineseError.json(), {
+      error: 'INVALID_GAME_ID', message: '游戏无效。',
+    });
+    const overrideError = await fetch(`${origin}/api/leaderboards?gameId=unknown`, {
+      headers: { 'Accept-Language': 'en-US', 'X-Game-Locale': 'vi' },
+    });
+    assert.equal(overrideError.headers.get('Content-Language'), 'vi');
+    assert.equal((await overrideError.json()).error, 'INVALID_GAME_ID');
 
     const messages = [];
     socket = new WebSocket(`${origin.replace('http:', 'ws:')}/ws/leaderboards`);
@@ -195,10 +220,10 @@ test('Worker D1, Durable Object claims, and WebSocket integration', { timeout: 1
     assert.equal(await rawWebSocketStatus(port), 101);
     for (const viewer of extraSockets) viewer.close();
 
-    async function post(pathname, body, cookie) {
+    async function post(pathname, body, cookie, extraHeaders = {}) {
       return fetch(`${origin}${pathname}`, {
         method: 'POST',
-        headers: { Origin: origin, 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) },
+        headers: { Origin: origin, 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}), ...extraHeaders },
         body: JSON.stringify(body),
       });
     }
@@ -237,14 +262,22 @@ test('Worker D1, Durable Object claims, and WebSocket integration', { timeout: 1
     });
     const engineUrl = `data:text/javascript;base64,${Buffer.from(engineBundle.outputFiles[0].contents).toString('base64')}`;
     const engine = await import(engineUrl);
-    const replayStartAt = Date.now();
-    const replayStart = await post('/api/runs', { gameId: 'snake', startLevel: 5, startSpeed: 4 });
-    assert.equal(replayStart.status, 201);
-    const replaySession = await replayStart.json();
-    const replayCookie = replayStart.headers.get('Set-Cookie').split(';')[0];
-    let state = engine.createInitialState('snake', replaySession.seed, 5, 4);
-    while (!state.terminal && state.tick < engine.MAX_TICKS) {
-      state = engine.step(state, state.tick === 0 ? 'left' : null);
+    let replayStartAt;
+    let replaySession;
+    let replayCookie;
+    let state;
+    // A random seed can end this simple replay before the snake scores.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      replayStartAt = Date.now();
+      const replayStart = await post('/api/runs', { gameId: 'snake', startLevel: 5, startSpeed: 4 });
+      assert.equal(replayStart.status, 201);
+      replaySession = await replayStart.json();
+      replayCookie = replayStart.headers.get('Set-Cookie').split(';')[0];
+      state = engine.createInitialState('snake', replaySession.seed, 5, 4);
+      while (!state.terminal && state.tick < engine.MAX_TICKS) {
+        state = engine.step(state, state.tick === 0 ? 'left' : null);
+      }
+      if (state.score > 0) break;
     }
     assert.equal(state.terminal, true);
     assert.ok(state.score > 0);
@@ -263,9 +296,13 @@ test('Worker D1, Durable Object claims, and WebSocket integration', { timeout: 1
     assert.equal(verified[0].startLevel, 5);
     assert.equal(verified[0].finalScore, state.score * 5);
 
-    const tied = await post(`/api/runs/${tieVisitor.runId}/claim`, { nickname: 'TIED_PLAYER' }, cookieFor(tieVisitor.playerId));
+    const tied = await post(`/api/runs/${tieVisitor.runId}/claim`, { nickname: 'TIED_PLAYER' },
+      cookieFor(tieVisitor.playerId), { 'Accept-Language': 'zh-CN' });
     assert.equal(tied.status, 409);
-    assert.equal((await tied.json()).error, 'NOT_ELIGIBLE');
+    assert.equal(tied.headers.get('Content-Language'), 'zh-CN');
+    assert.deepEqual(await tied.json(), {
+      error: 'NOT_ELIGIBLE', message: '该分数未达到前十名资格。',
+    });
     const first = contenders[0];
     assert.equal((await post(`/api/runs/${first.runId}/claim`,
       { nickname: '<script>alert(1)</script>' }, cookieFor(first.playerId))).status, 400);

@@ -3,6 +3,7 @@ import { readLeaderboards } from './leaderboards';
 import { startRun, finishRun, claimRun } from './runs';
 import { applyRateLimit } from './security';
 import { cleanupOldRuns } from './retention';
+import { requestLocale } from './locale';
 import type { Env } from './types';
 
 export { LeaderboardHub } from './LeaderboardHub';
@@ -33,7 +34,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const edgeIp = request.headers.get('CF-Connecting-IP');
     const ipKey = edgeIp && /^[0-9a-fA-F:.]{3,45}$/.test(edgeIp) ? edgeIp.toLowerCase() : 'unknown';
     return hub.fetch(new Request('https://leaderboard-hub.internal/connect', {
-      headers: { Upgrade: 'websocket', 'X-Edge-Client-IP': ipKey },
+      headers: { Upgrade: 'websocket', 'X-Edge-Client-IP': ipKey, 'X-Game-Locale': requestLocale(request) },
     }));
   }
   if (path.startsWith('/api/runs')) {
@@ -51,7 +52,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    try { return await handle(request, env); } catch (error) { return fail(error); }
+    try { return await handle(request, env); } catch (error) { return fail(error, request); }
   },
   async scheduled(controller: { scheduledTime: number }, env: Env): Promise<void> {
     const result = await cleanupOldRuns(env.DB, controller.scheduledTime);

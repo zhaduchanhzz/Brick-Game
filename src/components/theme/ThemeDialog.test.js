@@ -2,6 +2,9 @@ import React, { useState } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import ThemeDialog from './ThemeDialog'
 import { DEFAULT_PRESET_ID, THEME_STORAGE_VERSION } from '../../theme/presets'
+import { I18nProvider } from '../../i18n'
+
+const renderEnglish = element => render(<I18nProvider locale="en">{element}</I18nProvider>)
 
 const initialTheme = { version: THEME_STORAGE_VERSION, presetId: DEFAULT_PRESET_ID, overrides: {} }
 
@@ -23,7 +26,7 @@ function TestTheme() {
 }
 
 test('one trigger opens the accessible preset and custom color dialog', () => {
-  render(<TestTheme />)
+  renderEnglish(<TestTheme />)
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(screen.getAllByRole('button', { name: 'Change device' })).toHaveLength(1)
   expect(screen.getByRole('button', { name: 'Change device' }).querySelector('svg[aria-hidden="true"]')).not.toBeNull()
@@ -35,7 +38,7 @@ test('one trigger opens the accessible preset and custom color dialog', () => {
 })
 
 test('preset and custom color changes leave sibling gameplay state intact', () => {
-  render(<TestTheme />)
+  renderEnglish(<TestTheme />)
   fireEvent.click(screen.getByRole('button', { name: 'Tick game' }))
   fireEvent.click(screen.getByRole('button', { name: 'Change device' }))
   fireEvent.click(screen.getByRole('button', { name: 'Ocean Blue' }))
@@ -49,7 +52,7 @@ test('preset and custom color changes leave sibling gameplay state intact', () =
 })
 
 test('Escape closes the dialog, restores focus, and Tab stays inside', () => {
-  render(<TestTheme />)
+  renderEnglish(<TestTheme />)
   const trigger = screen.getByRole('button', { name: 'Change device' })
   fireEvent.click(trigger)
   const dialog = screen.getByRole('dialog')

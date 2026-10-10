@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import PropTypes from 'prop-types'
+import { useI18n } from '../../i18n'
 
 import style from './index.module.less'
 
 const formate = (num) => (num < 10 ? `0${num}`.split('') : `${num}`.split(''))
 
 const Number = ({ number, length, time, label }) => {
+  const { t } = useI18n()
   const renderNumber = (num, label) => (
     <div className={style.number} role="img" aria-label={label}>
       {num.map((digit, index) => (
@@ -30,8 +32,8 @@ const Number = ({ number, length, time, label }) => {
     const hour = formate(now.getHours())
     const min = formate(now.getMinutes())
     const sec = now.getSeconds() % 2
-    const t = hour.concat(sec ? 'd' : 'd_c', min)
-    return renderNumber(t, `Time ${hour.join('')}:${min.join('')}`)
+    const digits = hour.concat(sec ? 'd' : 'd_c', min)
+    return renderNumber(digits, `${t('device.time')} ${hour.join('')}:${min.join('')}`)
   }
   const num = `${number}`.split('')
   for (let i = 0, len = length - num.length; i < len; i++) {

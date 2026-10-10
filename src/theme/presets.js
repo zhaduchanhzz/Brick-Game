@@ -111,11 +111,20 @@ export function contrastRatio(first, second) {
   return (brighter + 0.05) / (darker + 0.05)
 }
 
-export function themeContrastWarnings(theme) {
+export function themeContrastWarningCodes(theme) {
   const colors = resolveTheme(theme).colors
   const warnings = []
-  if (contrastRatio(colors.case, colors.label) < 4.5) warnings.push('Machine text may be hard to read against the body color.')
-  if (contrastRatio(colors.lcd, colors.lcdPixel) < 4.5) warnings.push('LCD pixels may be hard to see against the screen color.')
-  if (contrastRatio(colors.pageBackground, '#F2F7FB') < 4.5) warnings.push('Page text may be hard to read against the background color.')
+  if (contrastRatio(colors.case, colors.label) < 4.5) warnings.push('machineText')
+  if (contrastRatio(colors.lcd, colors.lcdPixel) < 4.5) warnings.push('lcdPixels')
+  if (contrastRatio(colors.pageBackground, '#F2F7FB') < 4.5) warnings.push('pageText')
   return warnings
+}
+
+export function themeContrastWarnings(theme) {
+  const messages = {
+    machineText: 'Machine text may be hard to read against the body color.',
+    lcdPixels: 'LCD pixels may be hard to see against the screen color.',
+    pageText: 'Page text may be hard to read against the background color.',
+  }
+  return themeContrastWarningCodes(theme).map(code => messages[code])
 }

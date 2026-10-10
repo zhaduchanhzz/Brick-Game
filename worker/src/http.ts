@@ -1,3 +1,5 @@
+import { errorMessage, requestLocale } from './locale';
+
 export class HttpError extends Error {
   status: number;
   code: string;
@@ -20,10 +22,12 @@ export function json(data: unknown, status = 200, headers?: HeadersInit): Respon
   });
 }
 
-export function fail(error: unknown): Response {
-  if (error instanceof HttpError) return json({ error: error.code }, error.status);
+export function fail(error: unknown, request?: Request): Response {
+  const locale = requestLocale(request);
+  const headers = { 'Content-Language': locale, Vary: 'Accept-Language, X-Game-Locale' };
+  if (error instanceof HttpError) return json({ error: error.code, message: errorMessage(error.code, locale) }, error.status, headers);
   console.error('Worker request failed', error);
-  return json({ error: 'INTERNAL_ERROR' }, 500);
+  return json({ error: 'INTERNAL_ERROR', message: errorMessage('INTERNAL_ERROR', locale) }, 500, headers);
 }
 
 export function assertOrigin(request: Request): void {

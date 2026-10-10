@@ -78,6 +78,10 @@ The Worker integration test starts its own isolated local Wrangler process and d
 
 With `npm run dev:worker` running, `npm run test:browser` performs a local headless Chrome/Edge smoke check at 13 viewports from 320x568 to 1848x997, plus portrait–landscape–portrait resizing. It checks complete machine fit, LCD/button proportions and spacing, fixed toolbar dimensions, both dialogs, six-game input, and leaderboard request behavior. Screenshots are saved under ignored `.wrangler/qa/`. `npm run test:browser:ranked` starts a separate temporary Wrangler/D1 instance, plays a terminal Snake run, verifies it, claims a nickname, checks the board, then removes only its temporary state. Both browser checks need Chrome or Edge; set `CHROME_PATH` if needed. The replay benchmark reports local Node wall time; the ranked rollout separately measured the Cloudflare runtime.
 
+## Languages
+
+The interface defaults to Vietnamese. Use the **VI / EN / 中文** selector above the machine to switch to English or Simplified Chinese; the selection is saved in this browser and also updates the page language for accessibility. The Worker serves the same game for every language. API requests send the selected locale in `Accept-Language`, so API error messages follow the same choice; error codes, game IDs, scores, leaderboard data, and WebSocket events remain language-independent.
+
 ## Controls and scoring
 
 Use the on-screen controls or the selected desktop keyboard layout. **Switch to WASD / Switch to arrows** changes the movement keys and remembers the selection. On the menu, Left/Right (or A/D) set speed, Up/Down (or W/S) set level, and `X` or Space chooses the next game. During play, `X` is the action key for Tetris, Tank, and Shooting; Space also performs that action unless a button has keyboard focus, in which case Space activates the focused button. `P` starts or pauses and `R` resets. Sound is `S` in arrow mode and `M` in WASD mode, as shown on the machine. Keyboard presses animate the matching physical buttons without invoking the game action twice.

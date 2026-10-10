@@ -2,6 +2,7 @@ import { GAME_IDS } from '../../src/engine/registry.js';
 import { RULES_VERSION, TICK_RATE, MAX_TICKS, MAX_EVENTS, SUPPORTED_RANKED_GAMES, verifyReplay } from '../../src/engine/replay.js';
 import { HttpError, json, readJson } from './http';
 import { isEligible, validGameId } from './leaderboards';
+import { requestLocale } from './locale';
 import { applyRateLimit, newVisitor, readVisitor, requireSessionSecret, validateNickname } from './security';
 import type { BoardRow, Env, RunSession } from './types';
 
@@ -158,6 +159,7 @@ export async function claimRun(request: Request, env: Env, runId: string): Promi
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'X-Game-Locale': requestLocale(request),
       'X-Original-Host': new URL(request.url).hostname,
       'X-Client-IP': request.headers.get('CF-Connecting-IP') || '',
     },

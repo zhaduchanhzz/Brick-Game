@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { getLeaderboard, getLeaderboards } from '../api/client'
+import { ApiError, getLeaderboard, getLeaderboards } from '../api/client'
 import { GAME_IDS, setLeaderboardConnection, setLeaderboardError, setLeaderboardGame, setLeaderboardSnapshot } from '../store/reducer/leaderboardSlice'
 
 const GAME_ID_SET = new Set(GAME_IDS)
@@ -22,7 +22,7 @@ function validBoard(board) {
 
 function validateSnapshot(snapshot) {
   if (!snapshot || !snapshot.games || GAME_IDS.some(id => !validBoard(snapshot.games[id]))) {
-    throw new Error('The leaderboard response is incomplete.')
+    throw new ApiError('INCOMPLETE_LEADERBOARD', 0, 'INCOMPLETE_LEADERBOARD')
   }
   return snapshot
 }
@@ -145,7 +145,7 @@ export default function useLeaderboardSync() {
         dispatch(setLeaderboardSnapshot(snapshot))
         connect()
       } catch (error) {
-        if (!stopped) dispatch(setLeaderboardError(error.message || 'Could not load leaderboards.'))
+        if (!stopped) dispatch(setLeaderboardError(error.code || 'REQUEST_FAILED'))
       }
     }
 

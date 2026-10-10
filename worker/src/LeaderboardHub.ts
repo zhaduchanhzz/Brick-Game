@@ -28,8 +28,8 @@ export class LeaderboardHub {
     const task = this.queue.then(() => {
       if (path === '/connect') return this.connect(request);
       if (path === '/claim' && request.method === 'POST') return this.claim(request);
-      return json({ error: 'NOT_FOUND' }, 404);
-    }).catch(fail);
+      throw new HttpError(404, 'NOT_FOUND');
+    }).catch(error => fail(error, request));
     this.queue = task.then(() => undefined, () => undefined);
     return task;
   }

@@ -45,7 +45,7 @@
 .brand p { margin: 0 0 8px; color: #ffd775; font-size: 11px; font-weight: 800; letter-spacing: 2.5px; }
 .brand h1 { margin: 0; font-size: clamp(29px, 3.7vw, 54px); letter-spacing: .055em; line-height: 1.02; text-shadow: 0 5px 16px rgba(0, 0, 0, .25); }
 .brand span { display: block; margin-top: 12px; color: #d6e3eb; font-size: 13px; line-height: 1.4; }
-.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; max-width: 100%; margin-top: 18px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: 250px; max-width: 100%; margin-top: 18px; }
 .toolbarToggle {
   height: 42px;
   border: 1px solid rgba(242, 238, 205, .66);
@@ -61,6 +61,19 @@
 .modeToggle { flex: 0 0 104px; width: 104px; }
 .toolbarToggle:hover { background: linear-gradient(145deg, #526b81, #263d52 72%); }
 .toolbarToggle:focus-visible { outline: 3px solid #ffdc7d; outline-offset: 3px; }
+.localeSelect {
+  flex: 0 0 68px;
+  width: 68px;
+  height: 42px;
+  border: 1px solid rgba(242, 238, 205, .66);
+  border-radius: 10px;
+  padding: 0 4px;
+  background: #192d40;
+  color: #fff8e8;
+  font: 700 12px "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+  cursor: pointer;
+}
+.localeSelect:focus-visible { outline: 3px solid #ffdc7d; outline-offset: 3px; }
 .layout {
   display: contents;
 }

@@ -1,13 +1,15 @@
 import React from 'react'
 import style from './index.module.less'
 import PropTypes from 'prop-types'
+import { useI18n } from '../../i18n'
 const Welcome = ({ game }) => {
+  const { t } = useI18n()
   return (
     <div className={style.welcome}>
-      <h3>WELCOME</h3>
+      <h3>{t('device.welcome')}</h3>
       <div>
-        <p>Click the arrows for level</p>
-        <p>Click START to start</p>
+        <p>{t('device.welcomeLevel')}</p>
+        <p>{t('device.welcomeStart')}</p>
       </div>
       <div>
         <span>{game}</span>

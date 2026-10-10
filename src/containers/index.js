@@ -11,6 +11,7 @@ import { subscribeVerifiedRun } from '../api/runResults'
 import { publishRunMode, subscribeRunMode } from '../api/runMode'
 import { COLOR_FIELDS, DEFAULT_PRESET_ID, THEME_STORAGE_VERSION, isHexColor, loadTheme, resolveTheme, saveTheme, themeVariables } from '../theme/presets'
 import { getKeyboardMode, setKeyboardMode, subscribeKeyboardMode } from '../control/keyboardMode'
+import { I18nProvider, loadLocale, saveLocale, translate, useI18n } from '../i18n'
 import style from './index.module.less'
 
 const COLOR_KEYS = new Set(COLOR_FIELDS.map(([key]) => key))
@@ -25,6 +26,7 @@ function loadGuideVisibility() {
 }
 
 export function MobileLeaderboard({ panelProps }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const triggerRef = useRef(null)
   const dialogRef = useRef(null)
@@ -62,13 +64,13 @@ export function MobileLeaderboard({ panelProps }) {
 
   return (
     <>
-      <button ref={triggerRef} className={style.mobileLeaderboardButton} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>🏆 Top 10</button>
+      <button ref={triggerRef} className={style.mobileLeaderboardButton} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>{t('app.topTenButton')}</button>
       {open && createPortal(
         <div className={style.mobileLeaderboardOverlay} onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false) }}>
           <section ref={dialogRef} className={style.mobileLeaderboardContent} role="dialog" aria-modal="true" aria-labelledby="mobile-leaderboard-title" onKeyDown={onKeyDown}>
             <div className={style.mobileLeaderboardHeader}>
-              <h2 id="mobile-leaderboard-title">Top 10 leaderboard</h2>
-              <button ref={closeRef} className={style.mobileLeaderboardClose} type="button" aria-label="Close leaderboard" onClick={() => setOpen(false)}>×</button>
+              <h2 id="mobile-leaderboard-title">{t('app.topTenTitle')}</h2>
+              <button ref={closeRef} className={style.mobileLeaderboardClose} type="button" aria-label={t('app.closeLeaderboard')} onClick={() => setOpen(false)}>×</button>
             </div>
             <LeaderboardPanel {...panelProps} />
           </section>
@@ -86,6 +88,8 @@ export default function App() {
   const [runMode, setRunMode] = useState({ mode: 'idle' })
   const [guideVisible, setGuideVisible] = useState(loadGuideVisibility)
   const [keyboardMode, setKeyboardModeState] = useState(getKeyboardMode)
+  const [locale, setLocale] = useState(loadLocale)
+  const t = (key, params) => translate(locale, key, params)
   const gameMainRef = useRef(null)
   const leaderboard = useLeaderboardSync()
   const resolvedTheme = resolveTheme(theme)
@@ -93,6 +97,10 @@ export default function App() {
   const leaderboardProps = { gameId, board, status: leaderboard.status, connection: leaderboard.connection, error: leaderboard.error, onRetry: leaderboard.retry, lastVerified }
 
   useEffect(() => saveTheme(theme), [theme])
+  useEffect(() => {
+    saveLocale(locale)
+    document.documentElement.lang = locale
+  }, [locale])
   useEffect(() => subscribeKeyboardMode(setKeyboardModeState), [])
   useEffect(() => {
     try {
@@ -144,54 +152,61 @@ export default function App() {
   }
 
   return (
-    <div className={style.page} style={themeVariables(theme)}>
-      <header className={style.header}>
-        <div className={style.brand}>
-          <p>THE HANDHELD ARCADE</p>
-          <h1>BRICK GAME</h1>
-          <span>Six classics. One machine.</span>
-        </div>
-        <div className={style.gameTitle}><span className={style.liveDot} /> NOW PLAYING <strong>{gameId.toUpperCase()}</strong></div>
-        {runMode.mode !== 'idle' && <div className={style.runNotice}><RunModeNotice runMode={runMode} /></div>}
-        <div className={style.toolbar}>
-          <ThemeDialog theme={theme} onColorChange={changeColor} onPresetChange={choosePreset} onReset={resetTheme} />
-          <button className={`${style.toolbarToggle} ${style.guideToggle}`} type="button" aria-controls="movement-keyboard-guide action-keyboard-guide" aria-expanded={guideVisible} onClick={() => setGuideVisible(visible => !visible)}>
-            {guideVisible ? 'Hide guide' : 'Show guide'}
-          </button>
-          <button className={`${style.toolbarToggle} ${style.modeToggle}`} type="button" aria-label="WASD movement" aria-pressed={keyboardMode === 'wasd'} onClick={() => setKeyboardMode(keyboardMode === 'wasd' ? 'arrows' : 'wasd')}>
-            {keyboardMode === 'wasd' ? 'Switch to arrows' : 'Switch to WASD'}
-          </button>
-          <MobileLeaderboard panelProps={leaderboardProps} />
-        </div>
-        <section id="movement-keyboard-guide" className={style.controlsPanel} aria-label="Movement keyboard controls" hidden={!guideVisible}>
-          <span className={style.controlsKicker}>DESKTOP CONTROLS / 01</span>
-          <h2>Move &amp; select</h2>
-          <div className={style.directionKeys} aria-label={keyboardMode === 'wasd' ? 'WASD keys' : 'Arrow keys'}>
-            <kbd>{keyboardMode === 'wasd' ? 'W' : '↑'}</kbd>
-            <div><kbd>{keyboardMode === 'wasd' ? 'A' : '←'}</kbd><kbd>{keyboardMode === 'wasd' ? 'S' : '↓'}</kbd><kbd>{keyboardMode === 'wasd' ? 'D' : '→'}</kbd></div>
+    <I18nProvider locale={locale}>
+      <div className={style.page} style={themeVariables(theme)}>
+        <header className={style.header}>
+          <div className={style.brand}>
+            <p>{t('app.brandKicker')}</p>
+            <h1>BRICK GAME</h1>
+            <span>{t('app.brandTagline')}</span>
           </div>
-          {keyboardMode === 'wasd'
-            ? <p>WASD moves or steers while playing. On the menu, <kbd>A</kbd><kbd>D</kbd> set speed and <kbd>W</kbd><kbd>S</kbd> set level.</p>
-            : <p>Arrow keys move or steer while playing. On the menu, <kbd>←</kbd><kbd>→</kbd> set speed and <kbd>↑</kbd><kbd>↓</kbd> set level.</p>}
-        </section>
-      </header>
-      <div className={style.layout}>
-        <main ref={gameMainRef} tabIndex={-1} className={style.gameColumn} aria-label="Brick Game machine">
-          <GameDevice shape={resolvedTheme.shape} keyboardMode={keyboardMode} />
-        </main>
-        <div className={style.desktopLeaderboard}>
-          <LeaderboardPanel {...leaderboardProps} />
-          <section id="action-keyboard-guide" className={style.controlsPanel} aria-label="Action and system keyboard controls" hidden={!guideVisible}>
-            <span className={style.controlsKicker}>DESKTOP CONTROLS / 02</span>
-            <h2>Action &amp; system</h2>
-            <div className={style.shortcutRow}><kbd>X</kbd><span>Action / fire / rotate*</span></div>
-            <div className={style.shortcutRow}><kbd>P</kbd><span>Start / pause</span></div>
-            <div className={style.shortcutRow}><kbd>R</kbd><span>Reset</span><kbd>{keyboardMode === 'wasd' ? 'M' : 'S'}</kbd><span>Sound</span></div>
-            <p><kbd>Space</kbd> or <kbd>X</kbd> selects the next game on the menu. Space also acts in-game when no button is focused. *Action is used in Tetris, Tank and Shooting.</p>
+          <div className={style.gameTitle}><span className={style.liveDot} /> {t('app.nowPlaying')} <strong>{t(`game.${gameId}`).toUpperCase()}</strong></div>
+          {runMode.mode !== 'idle' && <div className={style.runNotice}><RunModeNotice runMode={runMode} /></div>}
+          <div className={style.toolbar}>
+            <ThemeDialog theme={theme} onColorChange={changeColor} onPresetChange={choosePreset} onReset={resetTheme} />
+            <select className={style.localeSelect} data-testid="locale-select" aria-label={t('app.language')} value={locale} onChange={event => setLocale(event.target.value)}>
+              <option value="vi">VI</option>
+              <option value="en">EN</option>
+              <option value="zh-CN">中文</option>
+            </select>
+            <button className={`${style.toolbarToggle} ${style.guideToggle}`} type="button" aria-controls="movement-keyboard-guide action-keyboard-guide" aria-expanded={guideVisible} onClick={() => setGuideVisible(visible => !visible)}>
+              {guideVisible ? t('app.hideGuide') : t('app.showGuide')}
+            </button>
+            <button className={`${style.toolbarToggle} ${style.modeToggle}`} data-testid="keyboard-mode-toggle" type="button" aria-label={t('app.wasdMovement')} aria-pressed={keyboardMode === 'wasd'} onClick={() => setKeyboardMode(keyboardMode === 'wasd' ? 'arrows' : 'wasd')}>
+              {keyboardMode === 'wasd' ? t('app.switchToArrows') : t('app.switchToWasd')}
+            </button>
+            <MobileLeaderboard panelProps={leaderboardProps} />
+          </div>
+          <section id="movement-keyboard-guide" className={style.controlsPanel} aria-label={t('app.movementAria')} hidden={!guideVisible}>
+            <span className={style.controlsKicker}>{t('app.desktopControls1')}</span>
+            <h2>{t('app.moveSelect')}</h2>
+            <div className={style.directionKeys} aria-label={keyboardMode === 'wasd' ? t('app.wasdKeys') : t('app.arrowKeys')}>
+              <kbd>{keyboardMode === 'wasd' ? 'W' : '↑'}</kbd>
+              <div><kbd>{keyboardMode === 'wasd' ? 'A' : '←'}</kbd><kbd>{keyboardMode === 'wasd' ? 'S' : '↓'}</kbd><kbd>{keyboardMode === 'wasd' ? 'D' : '→'}</kbd></div>
+            </div>
+            {keyboardMode === 'wasd'
+              ? <p>{t('app.wasdMoveHelp')}</p>
+              : <p>{t('app.arrowMoveHelp')}</p>}
           </section>
+        </header>
+        <div className={style.layout}>
+          <main ref={gameMainRef} tabIndex={-1} className={style.gameColumn} data-testid="brick-game-machine" aria-label={t('app.machineAria')}>
+            <GameDevice shape={resolvedTheme.shape} keyboardMode={keyboardMode} />
+          </main>
+          <div className={style.desktopLeaderboard}>
+            <LeaderboardPanel {...leaderboardProps} />
+            <section id="action-keyboard-guide" className={style.controlsPanel} aria-label={t('app.actionAria')} hidden={!guideVisible}>
+              <span className={style.controlsKicker}>{t('app.desktopControls2')}</span>
+              <h2>{t('app.actionSystem')}</h2>
+              <div className={style.shortcutRow}><kbd>X</kbd><span>{t('app.actionFireRotate')}</span></div>
+              <div className={style.shortcutRow}><kbd>P</kbd><span>{t('app.startPause')}</span></div>
+              <div className={style.shortcutRow}><kbd>R</kbd><span>{t('app.reset')}</span><kbd>{keyboardMode === 'wasd' ? 'M' : 'S'}</kbd><span>{t('app.sound')}</span></div>
+              <p>{t('app.actionHint')}</p>
+            </section>
+          </div>
         </div>
+        <ClaimNameDialog result={claimCandidate} returnFocusRef={gameMainRef} onClose={onClaimClosed} onClaimed={onClaimed} onIneligible={onIneligible} />
       </div>
-      <ClaimNameDialog result={claimCandidate} returnFocusRef={gameMainRef} onClose={onClaimClosed} onClaimed={onClaimed} onIneligible={onIneligible} />
-    </div>
+    </I18nProvider>
   )
 }

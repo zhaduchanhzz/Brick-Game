@@ -103,6 +103,21 @@ async function clickButton(cdp, label) {
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
 }
 
+async function clickSelector(cdp, selector, description) {
+  const point = await cdp.eval(`(() => {
+    const button = document.querySelector(${JSON.stringify(selector)})
+    if (!button) return null
+    const rect = button.getBoundingClientRect()
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    return { x, y, disabled: button.disabled,
+      inViewport: x >= 0 && x < innerWidth && y >= 0 && y < innerHeight }
+  })()`)
+  if (!point || point.disabled || !point.inViewport) fail(`${description} cannot be clicked: ${JSON.stringify(point)}`)
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+}
+
 async function pressKey(cdp, key, code, keyCode) {
   const params = { key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode }
   await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...params })
@@ -140,9 +155,185 @@ async function pressKeyWithFeedback(cdp, key, code, keyCode, label) {
   return held.transform
 }
 
+async function localeState(cdp) {
+  return cdp.eval(`(() => {
+    const select = document.querySelector('[data-testid="locale-select"]')
+    const rect = select?.getBoundingClientRect()
+    const theme = document.querySelector('button[aria-haspopup="dialog"][title]')
+    const machine = document.querySelector('main[class*="GameDevice"]') || document.querySelector('main[aria-label]')
+    const board = document.querySelector('[class*="desktopLeaderboard"] aside')
+    return {
+      value: select?.value,
+      stored: localStorage.getItem('brick-game-locale'),
+      lang: document.documentElement.lang,
+      options: select && [...select.options].map(option => ({ value: option.value, text: option.textContent.trim() })),
+      label: select?.getAttribute('aria-label'),
+      bounds: rect && { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+        width: rect.width, height: rect.height,
+        visible: getComputedStyle(select).display !== 'none' && rect.width > 0 && rect.height > 0 },
+      themeLabel: theme?.getAttribute('aria-label'),
+      machineLabel: machine?.getAttribute('aria-label'),
+      boardLabel: board?.getAttribute('aria-label'),
+      boardKicker: board?.querySelector('[class*="kicker"]')?.textContent?.trim(),
+      gameTitle: document.querySelector('[class*="gameTitle"] strong')?.textContent?.trim()
+    }
+  })()`)
+}
+
+async function chooseLocale(cdp, value) {
+  const selected = await cdp.eval(`(() => {
+    const select = document.querySelector('[data-testid="locale-select"]')
+    if (!select || ![...select.options].some(option => option.value === ${JSON.stringify(value)})) return false
+    select.value = ${JSON.stringify(value)}
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    return true
+  })()`)
+  if (!selected) fail(`Locale selector cannot choose ${value}`)
+  return until(() => localeState(cdp), state => state.value === value && state.stored === value && state.lang === value,
+    `${value} locale selection`)
+}
+
+async function checkLocaleSelectorFit(cdp, width, height) {
+  const state = await localeState(cdp)
+  const box = state.bounds
+  if (!box?.visible || box.width < 40 || box.height < 28 || box.left < -1 || box.top < -1 ||
+    box.right > width + 1 || box.bottom > height + 1) {
+    fail(`${width}x${height} locale selector is not visible inside the viewport: ${JSON.stringify(state)}`)
+  }
+  const overlaps = await cdp.eval(`(() => {
+    const select = document.querySelector('[data-testid="locale-select"]')
+    const box = select.getBoundingClientRect()
+    return [...select.parentElement.querySelectorAll('button')].filter(button => {
+      const peer = button.getBoundingClientRect()
+      return peer.width > 0 && peer.height > 0 && getComputedStyle(button).display !== 'none' &&
+        box.left < peer.right - 1 && box.right > peer.left + 1 &&
+        box.top < peer.bottom - 1 && box.bottom > peer.top + 1
+    }).map(button => button.getAttribute('aria-label') || button.textContent.trim())
+  })()`)
+  if (overlaps.length) fail(`${width}x${height} locale selector overlaps toolbar controls: ${JSON.stringify(overlaps)}`)
+  return box
+}
+
+async function expectLocalizedMenu(cdp, game, level, speed, phase) {
+  return until(() => cdp.eval(`(() => ({
+    game: document.querySelector('[class*="gameTitle"] strong')?.textContent?.trim(),
+    level: Boolean(document.querySelector('[role="img"][aria-label=${JSON.stringify(level)}]')),
+    speed: Boolean(document.querySelector('[role="img"][aria-label=${JSON.stringify(speed)}]'))
+  }))()`), state => state.game === game && state.level && state.speed, phase)
+}
+
+async function exerciseLocales(cdp, network) {
+  const width = 390
+  const height = 844
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true })
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+  await cdp.send('Page.navigate', { url: BASE_URL })
+  const vietnamese = await until(() => localeState(cdp), state => state.value === 'vi' &&
+    state.stored === 'vi' && state.lang === 'vi' && state.themeLabel && state.machineLabel,
+  'default Vietnamese locale')
+  if (JSON.stringify(vietnamese.options?.map(option => option.value)) !==
+    JSON.stringify(['vi', 'en', 'zh-CN']) || vietnamese.label !== 'Ngôn ngữ' ||
+    vietnamese.themeLabel !== 'Đổi máy chơi' || vietnamese.machineLabel !== 'Máy chơi Brick Game' ||
+    vietnamese.boardLabel !== 'Bảng xếp hạng XE TĂNG' ||
+    vietnamese.boardKicker !== '🏆 TOP 10 · MỌI THỜI ĐẠI' || vietnamese.gameTitle !== 'XE TĂNG') {
+    fail(`Fresh browser did not default to Vietnamese UI: ${JSON.stringify(vietnamese)}`)
+  }
+  const initialRequest = await until(() => Promise.resolve(network.leaderboardRequests.at(-1)),
+    Boolean, 'Vietnamese leaderboard bootstrap request')
+  if (initialRequest.language !== 'vi') {
+    fail(`Vietnamese API request omitted its locale: ${JSON.stringify(initialRequest)}`)
+  }
+  const initialRequestCount = network.leaderboardRequests.length
+  await checkLocaleSelectorFit(cdp, width, height)
+  await checkViewportFit(cdp, width, height, true)
+  await checkPageHeight(cdp, width, height, 'Vietnamese locale')
+  const vietnameseScreenshot = await capture(cdp, 'locale-vi-mobile-390x844.png', width)
+  await clickButton(cdp, 'XOAY')
+  await clickButton(cdp, 'NHANH')
+  await clickButton(cdp, 'PHẢI')
+  const selectedMenu = await expectLocalizedMenu(cdp, 'XẾP HÌNH', 'CẤP 2', 'TỐC ĐỘ 2',
+    'Vietnamese Tetris level 2 speed 2')
+
+  const english = await chooseLocale(cdp, 'en')
+  if (english.label !== 'Language' || english.themeLabel !== 'Change device' ||
+    english.machineLabel !== 'Brick Game machine' || english.boardLabel !== 'TETRIS leaderboard' ||
+    english.boardKicker !== '🏆 TOP 10 · ALL TIME' || english.gameTitle !== 'TETRIS') {
+    fail(`English UI did not update without losing game state: ${JSON.stringify(english)}`)
+  }
+  await expectLocalizedMenu(cdp, 'TETRIS', 'LEVEL 2', 'SPEED 2', 'English preserves selected game settings')
+  const englishScreenshot = await capture(cdp, 'locale-en-mobile-390x844.png', width)
+  const chinese = await chooseLocale(cdp, 'zh-CN')
+  if (chinese.label !== '语言' || chinese.themeLabel !== '更换掌机' ||
+    chinese.machineLabel !== 'Brick Game 掌机' || chinese.boardLabel !== '俄罗斯方块 排行榜' ||
+    chinese.boardKicker !== '🏆 前十名 · 历史总榜' || chinese.gameTitle !== '俄罗斯方块') {
+    fail(`Chinese UI labels did not translate: ${JSON.stringify(chinese)}`)
+  }
+  await expectLocalizedMenu(cdp, '俄罗斯方块', '等级 2', '速度 2', 'Chinese preserves selected game settings')
+  if (network.leaderboardRequests.length !== initialRequestCount) {
+    fail('Switching languages unnecessarily reloaded leaderboard data')
+  }
+  await checkViewportFit(cdp, width, height, true)
+  await checkPageHeight(cdp, width, height, 'Chinese locale')
+  const chineseScreenshot = await capture(cdp, 'locale-zh-mobile-390x844.png', width)
+  await cdp.send('Page.reload', { ignoreCache: true })
+  const persisted = await until(() => localeState(cdp), state => state.value === 'zh-CN' &&
+    state.stored === 'zh-CN' && state.lang === 'zh-CN' && state.themeLabel === chinese.themeLabel,
+  'Chinese locale after reload')
+  const reloadedRequest = await until(() => Promise.resolve(network.leaderboardRequests.at(-1)),
+    request => network.leaderboardRequests.length > initialRequestCount && Boolean(request),
+  'Chinese leaderboard request after reload')
+  if (reloadedRequest.language !== 'zh-CN') {
+    fail(`Persisted Chinese locale was not sent to Worker: ${JSON.stringify(reloadedRequest)}`)
+  }
+  await checkLocaleSelectorFit(cdp, width, height)
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false })
+  await until(() => cdp.eval('innerWidth'), value => value === 1440, 'desktop locale selector viewport')
+  const desktopSelector = await checkLocaleSelectorFit(cdp, 1440, 900)
+  const desktopChinese = await cdp.eval(`(() => ({
+    guide: document.querySelector('button[class*="guideToggle"]')?.textContent?.trim(),
+    movement: document.querySelector('#movement-keyboard-guide')?.getAttribute('aria-label'),
+    action: document.querySelector('#action-keyboard-guide')?.getAttribute('aria-label'),
+    mode: document.querySelector('button[data-testid="keyboard-mode-toggle"]')?.getAttribute('aria-label')
+  }))()`)
+  if (desktopChinese.guide !== '隐藏指南' || desktopChinese.movement !== '移动键盘操作说明' ||
+    desktopChinese.action !== '动作和系统按键说明' || desktopChinese.mode !== 'WASD 移动') {
+    fail(`Chinese desktop help did not translate: ${JSON.stringify(desktopChinese)}`)
+  }
+  await checkViewportFit(cdp, 1440, 900, false)
+  await checkPageHeight(cdp, 1440, 900, 'Chinese desktop locale')
+  const chineseDesktopScreenshot = await capture(cdp, 'locale-zh-desktop-1440x900.png', 1440)
+  const restoredVietnamese = await chooseLocale(cdp, 'vi')
+  if (restoredVietnamese.themeLabel !== vietnamese.themeLabel ||
+    restoredVietnamese.machineLabel !== vietnamese.machineLabel) {
+    fail(`Vietnamese UI did not restore: ${JSON.stringify(restoredVietnamese)}`)
+  }
+  const desktopVietnamese = await cdp.eval(`(() => ({
+    guide: document.querySelector('button[class*="guideToggle"]')?.textContent?.trim(),
+    movement: document.querySelector('#movement-keyboard-guide')?.getAttribute('aria-label'),
+    mode: document.querySelector('button[data-testid="keyboard-mode-toggle"]')?.getAttribute('aria-label')
+  }))()`)
+  if (desktopVietnamese.guide !== 'Ẩn hướng dẫn' ||
+    desktopVietnamese.movement !== 'Hướng dẫn phím di chuyển' ||
+    desktopVietnamese.mode !== 'Di chuyển bằng WASD') {
+    fail(`Vietnamese desktop help did not restore: ${JSON.stringify(desktopVietnamese)}`)
+  }
+  await checkPageHeight(cdp, 1440, 900, 'Vietnamese desktop locale')
+  const vietnameseDesktopScreenshot = await capture(cdp, 'locale-vi-desktop-1440x900.png', 1440)
+  await chooseLocale(cdp, 'en')
+  await checkViewportFit(cdp, 1440, 900, false)
+  await checkPageHeight(cdp, 1440, 900, 'English desktop locale')
+  const englishDesktopScreenshot = await capture(cdp, 'locale-en-desktop-1440x900.png', 1440)
+  return { default: vietnamese.value, options: vietnamese.options, switched: [english.value, chinese.value],
+    persisted: persisted.value, restored: restoredVietnamese.value, selectedMenu, mobileSelector: vietnamese.bounds,
+    desktopSelector, desktopChinese, desktopVietnamese, apiLanguages: [initialRequest.language, reloadedRequest.language],
+    screenshots: [vietnameseScreenshot, englishScreenshot, chineseScreenshot,
+      vietnameseDesktopScreenshot, englishDesktopScreenshot, chineseDesktopScreenshot] }
+}
+
 async function keyboardModeState(cdp) {
   return cdp.eval(`(() => {
-    const button = document.querySelector('button[aria-label="WASD movement"]')
+    const button = document.querySelector('button[data-testid="keyboard-mode-toggle"]')
     const guide = document.querySelector('[aria-label="Movement keyboard controls"]')
     const keys = guide?.querySelector('[class*="directionKeys"]')
     const action = document.querySelector('[aria-label="Action and system keyboard controls"]')
@@ -212,7 +403,7 @@ async function checkDesktopComposition(cdp, width, height) {
     const movementGuide = document.querySelector('[aria-label="Movement keyboard controls"]')
     const actionGuide = document.querySelector('[aria-label="Action and system keyboard controls"]')
     const guideToggle = document.querySelector('button[class*="guideToggle"]')
-    const modeToggle = document.querySelector('button[aria-label="WASD movement"]')
+    const modeToggle = document.querySelector('button[data-testid="keyboard-mode-toggle"]')
     const themeButton = document.querySelector('button[aria-label="Change device"]')
     const bounds = element => {
       if (!element) return null
@@ -356,7 +547,7 @@ async function checkMobileComposition(cdp, width, height) {
       themeButton: bounds(document.querySelector('button[aria-label="Change device"]')),
       topTenButton: bounds([...document.querySelectorAll('button')].find(button => button.textContent.includes('Top 10'))),
       guideToggle: bounds(document.querySelector('button[class*="guideToggle"]')),
-      modeToggle: bounds(document.querySelector('button[aria-label="WASD movement"]')),
+      modeToggle: bounds(document.querySelector('button[data-testid="keyboard-mode-toggle"]')),
       themeHasDeviceIcon: Boolean(document.querySelector('button[aria-label="Change device"] svg')),
       themeHasText: document.querySelector('button[aria-label="Change device"] span')?.textContent === 'Change device',
       themeHasOldPalette: Boolean(document.querySelector('button[aria-label="Change device"] [class*="triggerPalette"]'))
@@ -617,25 +808,25 @@ async function exerciseKeyboardMode(cdp) {
     initial.keyLabel !== 'Arrow keys') {
     fail(`Desktop keyboard mode did not start with arrows: ${JSON.stringify(initial)}`)
   }
-  await clickButton(cdp, 'WASD movement')
+  await clickSelector(cdp, 'button[data-testid="keyboard-mode-toggle"]', 'keyboard mode toggle')
   const wasd = await until(() => keyboardModeState(cdp), state => state.visible &&
     state.pressed === 'true' && state.text === 'Switch to arrows' && state.stored === 'wasd' &&
     state.keyLabel === 'WASD keys' && state.keyText === 'WASD' && state.soundButton && state.soundGuide,
   'WASD toggle, guide, and sound shortcut')
 
   await pressKeyWithFeedback(cdp, 'w', 'KeyW', 87, 'QUICK')
-  await until(() => cdp.eval(`document.querySelector('[aria-label="Level 2"]') !== null`), Boolean, 'W selects level 2')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="LEVEL 2"]') !== null`), Boolean, 'W selects level 2')
   await pressKeyWithFeedback(cdp, 'd', 'KeyD', 68, 'RIGHT')
-  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 2"]') !== null`), Boolean, 'D selects speed 2')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="SPEED 2"]') !== null`), Boolean, 'D selects speed 2')
   await pressKeyWithFeedback(cdp, 'a', 'KeyA', 65, 'LEFT')
-  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 1"]') !== null`), Boolean, 'A restores speed 1')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="SPEED 1"]') !== null`), Boolean, 'A restores speed 1')
   const soundBeforeS = await cdp.eval(`document.querySelector('[role="img"][aria-label^="Sound "]')?.getAttribute('aria-label')`)
   await pressKeyWithFeedback(cdp, 's', 'KeyS', 83, 'DOWN')
-  await until(() => cdp.eval(`document.querySelector('[aria-label="Level 1"]') !== null`), Boolean, 'S restores level 1')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="LEVEL 1"]') !== null`), Boolean, 'S restores level 1')
   const soundAfterS = await cdp.eval(`document.querySelector('[role="img"][aria-label^="Sound "]')?.getAttribute('aria-label')`)
   if (!soundBeforeS || soundAfterS !== soundBeforeS) fail('S changed sound instead of moving down in WASD mode')
   await pressKey(cdp, 'ArrowRight', 'ArrowRight', 39)
-  const ignoredArrow = await cdp.eval(`({ speed1: document.querySelector('[aria-label="Speed 1"]') !== null,
+  const ignoredArrow = await cdp.eval(`({ speed1: document.querySelector('[aria-label="SPEED 1"]') !== null,
     visual: document.querySelector('button[aria-label="RIGHT"] i')?.className.includes('active') })`)
   if (!ignoredArrow.speed1 || ignoredArrow.visual) fail(`Arrow key remained active in WASD mode: ${JSON.stringify(ignoredArrow)}`)
   await pressKeyWithFeedback(cdp, 'm', 'KeyM', 77, 'SOUND(M)')
@@ -643,14 +834,14 @@ async function exerciseKeyboardMode(cdp) {
   if (soundAfterM === soundBeforeS) fail('M did not toggle sound in WASD mode')
   await pressKeyWithFeedback(cdp, 'm', 'KeyM', 77, 'SOUND(M)')
 
-  await clickButton(cdp, 'WASD movement')
+  await clickSelector(cdp, 'button[data-testid="keyboard-mode-toggle"]', 'keyboard mode toggle')
   const arrows = await until(() => keyboardModeState(cdp), state => state.pressed === 'false' &&
     state.text === 'Switch to WASD' && state.stored === 'arrows' && state.keyLabel === 'Arrow keys' &&
     !state.soundButton, 'restored arrow mode')
   await pressKeyWithFeedback(cdp, 'ArrowRight', 'ArrowRight', 39, 'RIGHT')
-  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 2"]') !== null`), Boolean, 'arrow mode speed 2')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="SPEED 2"]') !== null`), Boolean, 'arrow mode speed 2')
   await pressKeyWithFeedback(cdp, 'ArrowLeft', 'ArrowLeft', 37, 'LEFT')
-  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 1"]') !== null`), Boolean, 'arrow mode restored speed 1')
+  await until(() => cdp.eval(`document.querySelector('[aria-label="SPEED 1"]') !== null`), Boolean, 'arrow mode restored speed 1')
   return { wasd, arrows, keys: ['W', 'A', 'S', 'D', 'M', 'ArrowRight', 'ArrowLeft'], soundConflictAvoided: true }
 }
 
@@ -659,7 +850,7 @@ async function exerciseDesktopKeyboard(cdp) {
   const focused = await cdp.eval(`document.activeElement?.getAttribute('aria-label')`)
   if (focused !== 'LEFT') fail(`Machine button did not retain focus for keyboard regression test: ${focused}`)
   await pressKeyWithFeedback(cdp, 'ArrowRight', 'ArrowRight', 39, 'RIGHT')
-  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 2"]') !== null`), Boolean,
+  await until(() => cdp.eval(`document.querySelector('[aria-label="SPEED 2"]') !== null`), Boolean,
     'ArrowRight from focused machine button')
   await pressKeyWithFeedback(cdp, 'x', 'KeyX', 88, 'ROTATE DIRECTION')
   await until(() => gameLabel(cdp), value => value === 'tetris', 'X action from focused machine button')
@@ -688,6 +879,9 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
   if (bootRequests !== 1) fail(`${width}px boot made ${bootRequests} leaderboard GETs, expected one`)
   const bootstrap = network.leaderboardResponses.at(-1)
   if (bootstrap.status !== 200) fail(`${width}px leaderboard bootstrap returned ${bootstrap.status}`)
+  if (network.leaderboardRequests.at(-1)?.language !== 'en') {
+    fail(`${width}px English locale was not sent to Worker: ${JSON.stringify(network.leaderboardRequests.at(-1))}`)
+  }
   await until(() => Promise.resolve(network.webSocketHandshakes.length), value => value > beforeSockets,
     `${width}px leaderboard WebSocket handshake`)
   if (network.webSocketHandshakes.at(-1).status !== 101) {
@@ -710,13 +904,18 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
   const composition = await until(() => mobile
     ? checkMobileComposition(cdp, width, height)
     : checkDesktopComposition(cdp, width, height), Boolean, `${width}x${height} initial composition`)
+  const localeSelector = await checkLocaleSelectorFit(cdp, width, height)
+  const selectedLocale = await localeState(cdp)
+  if (selectedLocale.value !== 'en' || selectedLocale.stored !== 'en' || selectedLocale.lang !== 'en') {
+    fail(`${width}x${height} English locale was lost during navigation: ${JSON.stringify(selectedLocale)}`)
+  }
   const deviceRect = await checkViewportFit(cdp, width, height, mobile)
   await checkPageHeight(cdp, width, height, 'menu')
   const guideToggle = mobile ? null : await exerciseGuideToggle(cdp, width, height)
   if (layoutOnly) {
     const screenshot = await capture(cdp, `tablet-${width}x${height}.png`, width)
     return { viewport: `${width}x${height}`, dimensions, bootstrapGets: bootRequests,
-      webSocketStatus: 101, deviceRect, composition, guideToggle, screenshot }
+      webSocketStatus: 101, deviceRect, composition, localeSelector, guideToggle, screenshot }
   }
 
   const overlays = mobile ? await exerciseMobileOverlays(cdp, width, height) : null
@@ -726,7 +925,7 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
     await clickButton(cdp, 'ROTATE DIRECTION')
     const expected = GAME_IDS[i % GAME_IDS.length]
     await until(() => gameLabel(cdp), value => value === expected, `${width}px selected game ${expected}`)
-    const board = await cdp.eval(`document.querySelector('aside[aria-label=${JSON.stringify(`${expected} leaderboard`)}]') !== null`)
+    const board = await cdp.eval(`document.querySelector('aside[aria-label=${JSON.stringify(`${expected.toUpperCase()} leaderboard`)}]') !== null`)
     if (!board) fail(`${width}px leaderboard does not follow ${expected}`)
   }
   if (network.leaderboardRequests.length !== before + 1) {
@@ -775,7 +974,7 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
   let persistedKeyboardMode = null
   if (!mobile) {
     const beforeReload = network.leaderboardRequests.length
-    await clickButton(cdp, 'WASD movement')
+    await clickSelector(cdp, 'button[data-testid="keyboard-mode-toggle"]', 'keyboard mode toggle')
     await until(() => keyboardModeState(cdp), state => state.stored === 'wasd' && state.pressed === 'true',
       'WASD mode before reload')
     await cdp.send('Page.reload', { ignoreCache: true })
@@ -787,14 +986,14 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
     persistedKeyboardMode = await until(() => keyboardModeState(cdp), state => state.pressed === 'true' &&
       state.text === 'Switch to arrows' && state.stored === 'wasd' && state.keyLabel === 'WASD keys' &&
       state.soundButton, 'persisted WASD mode after reload')
-    await clickButton(cdp, 'WASD movement')
+    await clickSelector(cdp, 'button[data-testid="keyboard-mode-toggle"]', 'keyboard mode toggle')
     await until(() => keyboardModeState(cdp), state => state.pressed === 'false' && state.stored === 'arrows',
       'arrow mode restored after reload')
     await until(() => Promise.resolve(network.leaderboardRequests.length), value => value > beforeReload, 'retro reload bootstrap GET')
     retroReloadGets = network.leaderboardRequests.length - beforeReload
     if (retroReloadGets !== 1) fail(`Retro reload made ${retroReloadGets} leaderboard GETs`)
   }
-  return { viewport: `${width}x${height}`, dimensions: after, deviceRect, composition, guideToggle, keyboardMode, overlays, bootstrapGets: bootRequests,
+  return { viewport: `${width}x${height}`, dimensions: after, deviceRect, composition, localeSelector, guideToggle, keyboardMode, overlays, bootstrapGets: bootRequests,
     webSocketStatus: 101, switchingGets: 0, exercisedGames, desktopKeyboard, lcdFeedback, screenshot, retroScreenshot, retroReloadGets, persistedKeyboardMode }
 }
 
@@ -821,7 +1020,23 @@ async function runRankedSnake(cdp, network) {
       css.display !== 'none' && css.visibility !== 'hidden'
   })()`)
   if (!rankedNoticeVisible) fail('Mobile ranked status is not visibly rendered during play')
-  await clickButton(cdp, 'LEFT')
+  const snakeHead = await until(() => cdp.eval(`(() => {
+    const rows = [...document.querySelectorAll('main [class*="index_matrix"] p')]
+    for (let x = 0; x < rows.length; x++) {
+      const cells = [...rows[x].children]
+      for (let y = 0; y < cells.length - 1; y++) {
+        if (cells[y].classList.contains('d') && cells[y + 1].classList.contains('c')) return { x, y }
+      }
+    }
+    return null
+  })()`), Boolean, 'initial Snake head location')
+  const safeInput = snakeHead.y > 0 ? 'LEFT' : snakeHead.x < 19 ? 'DOWN' : 'QUICK'
+  await clickButton(cdp, safeInput)
+  await until(() => cdp.eval(`(() => {
+    const score = document.querySelector('main [role="img"][aria-label^="SCORE "]')?.getAttribute('aria-label')
+    return Number(score?.slice('SCORE '.length)) > 0
+  })()`), Boolean, 'positive verified Snake score')
+  if (snakeHead.y === 0) await clickButton(cdp, 'LEFT')
   const openedTopTen = await cdp.eval(`(() => {
     const button = [...document.querySelectorAll('button')].find(item => item.textContent.includes('Top 10'))
     if (!button) return false
@@ -853,20 +1068,20 @@ async function runRankedSnake(cdp, network) {
   if (process.env.BRICK_PRODUCTION_MODAL_E2E === '1') {
     const screenshot = await capture(cdp, 'ranked-snake-modal-production-390x844.png', 390)
     return { rankedStart: 201, verifiedFinish: 200, eligibleModal: true,
-      claimSubmitted: false, rankedNoticeVisible, claimStack, screenshot }
+      claimSubmitted: false, rankedNoticeVisible, claimStack, snakeHead, safeInput, screenshot }
   }
   await cdp.eval(`document.querySelector('#claim-nickname').focus()`)
   await cdp.send('Input.insertText', { text: 'SMOKE_PLAYER' })
   await cdp.eval(`document.querySelector('[role="dialog"] button[type="submit"]').click()`)
   await until(() => Promise.resolve(network.apiResponses.find(response => response.path.endsWith('/claim') && response.status === 200)),
     Boolean, 'successful score claim')
-  await until(() => cdp.eval(`document.querySelector('aside[aria-label="snake leaderboard"]')?.textContent?.includes('SMOKE_PLAYER')`),
+  await until(() => cdp.eval(`document.querySelector('aside[aria-label="SNAKE leaderboard"]')?.textContent?.includes('SMOKE_PLAYER')`),
     Boolean, 'claimed leaderboard entry')
-  const boardText = await cdp.eval(`document.querySelector('aside[aria-label="snake leaderboard"]')?.textContent`)
+  const boardText = await cdp.eval(`document.querySelector('aside[aria-label="SNAKE leaderboard"]')?.textContent`)
   if (!boardText.includes('v1')) fail('Snake leaderboard version did not advance to 1')
   const screenshot = await capture(cdp, 'ranked-snake-claimed-390x844.png', 390)
   return { rankedStart: 201, verifiedFinish: 200, claim: 200, leaderboardVersion: 1,
-    nickname: 'SMOKE_PLAYER', rankedNoticeVisible, claimStack, screenshot }
+    nickname: 'SMOKE_PLAYER', rankedNoticeVisible, claimStack, snakeHead, safeInput, screenshot }
 }
 
 async function checkResizeCycle(cdp) {
@@ -1073,7 +1288,9 @@ async function main() {
     cdp.on('Network.requestWillBeSent', event => {
       const requestUrl = new URL(event.request.url)
       if (event.request.method === 'GET' && requestUrl.pathname === '/api/leaderboards') {
-        network.leaderboardRequests.push({ url: requestUrl.pathname, time: event.timestamp })
+        const language = Object.entries(event.request.headers || {})
+          .find(([name]) => name.toLowerCase() === 'accept-language')?.[1] || null
+        network.leaderboardRequests.push({ url: requestUrl.pathname, time: event.timestamp, language })
       }
     })
     cdp.on('Network.responseReceived', event => {
@@ -1086,10 +1303,11 @@ async function main() {
     })
     cdp.on('Runtime.exceptionThrown', event => network.exceptions.push(event.exceptionDetails?.exception?.description || event.exceptionDetails?.text || 'unknown'))
 
+    const locales = await exerciseLocales(cdp, network)
     if (process.env.BRICK_RANKED_E2E === '1') {
       const ranked = await runRankedSnake(cdp, network)
       if (network.exceptions.length) fail(`Browser exceptions: ${network.exceptions.join(', ')}`)
-      console.log(JSON.stringify({ passed: true, ranked }, null, 2))
+      console.log(JSON.stringify({ passed: true, locales, ranked }, null, 2))
       return
     }
     const smallMobile = await runViewport(cdp, network, 320, 568, true)
@@ -1128,7 +1346,7 @@ async function main() {
     const retroTopAnchoredPortrait = await checkTopAnchoredPortraitGrowth(cdp, 'Retro Cream')
     const retroPortraitGaps = await checkRetroPortraitGaps(cdp)
     if (network.exceptions.length) fail(`Browser exceptions: ${network.exceptions.join(', ')}`)
-    console.log(JSON.stringify({ passed: true, smallMobile, mobile, desktop, tablet, reference, portrait,
+    console.log(JSON.stringify({ passed: true, locales, smallMobile, mobile, desktop, tablet, reference, portrait,
       additionalViewports, resizeCycle, topAnchoredPortrait, retroTopAnchoredPortrait, retroPortraitGaps }, null, 2))
   } finally {
     if (cdp) cdp.socket.close()

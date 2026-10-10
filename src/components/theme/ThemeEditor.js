@@ -1,15 +1,17 @@
 import React from 'react'
-import { COLOR_FIELDS, PRESETS, resolveTheme, themeContrastWarnings } from '../../theme/presets'
+import { COLOR_FIELDS, PRESETS, resolveTheme, themeContrastWarningCodes } from '../../theme/presets'
+import { useI18n } from '../../i18n'
 import style from './theme.module.less'
 
 export default function ThemeEditor({ theme, onColorChange, onPresetChange, onReset }) {
+  const { t } = useI18n()
   const resolved = resolveTheme(theme)
-  const contrastWarnings = themeContrastWarnings(theme)
+  const contrastWarnings = themeContrastWarningCodes(theme)
 
   return (
     <div className={style.editor}>
       <fieldset className={style.presetFieldset}>
-        <legend>Choose a finish</legend>
+        <legend>{t('theme.chooseFinish')}</legend>
         <div className={style.presets}>
           {PRESETS.map(preset => (
             <button
@@ -32,7 +34,7 @@ export default function ThemeEditor({ theme, onColorChange, onPresetChange, onRe
                 <span className={style.presetScreen} />
                 <span className={style.presetButton} />
               </span>
-              <span className={style.presetName}>{preset.name}</span>
+              <span className={style.presetName}>{t(`theme.preset.${preset.id}`)}</span>
               <span className={style.presetSelected} aria-hidden="true">✓</span>
             </button>
           ))}
@@ -40,14 +42,14 @@ export default function ThemeEditor({ theme, onColorChange, onPresetChange, onRe
       </fieldset>
 
       <fieldset className={style.customFieldset}>
-        <legend>Fine-tune the colors</legend>
-        <p>Changes appear on the machine immediately and are saved on this device.</p>
+        <legend>{t('theme.fineTune')}</legend>
+        <p>{t('theme.savedLocally')}</p>
         <div className={style.fields}>
-          {COLOR_FIELDS.map(([key, label]) => (
+          {COLOR_FIELDS.map(([key]) => (
             <label key={key} className={style.colorField}>
-              <span>{label}</span>
+              <span>{t(`theme.color.${key}`)}</span>
               <span className={style.colorValue}>
-                <input type="color" aria-label={label} value={resolved.colors[key]} onChange={event => onColorChange(key, event.target.value)} />
+                <input type="color" aria-label={t(`theme.color.${key}`)} value={resolved.colors[key]} onChange={event => onColorChange(key, event.target.value)} />
                 <span aria-hidden="true">{resolved.colors[key]}</span>
               </span>
             </label>
@@ -55,11 +57,11 @@ export default function ThemeEditor({ theme, onColorChange, onPresetChange, onRe
         </div>
         {contrastWarnings.length > 0 && (
           <div className={style.contrastWarning} role="status">
-            {contrastWarnings.map(message => <p key={message}>{message}</p>)}
+            {contrastWarnings.map(code => <p key={code}>{t(`theme.warning.${code}`)}</p>)}
           </div>
         )}
       </fieldset>
-      <button type="button" className={style.reset} onClick={onReset}>Reset to Classic Yellow</button>
+      <button type="button" className={style.reset} onClick={onReset}>{t('theme.reset')}</button>
     </div>
   )
 }

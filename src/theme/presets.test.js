@@ -1,4 +1,4 @@
-import { DEFAULT_PRESET_ID, PRESETS, THEME_STORAGE_KEY, THEME_STORAGE_VERSION, contrastRatio, loadTheme, resolveTheme, sanitizeTheme, saveTheme, themeContrastWarnings, themeVariables } from './presets'
+import { DEFAULT_PRESET_ID, PRESETS, THEME_STORAGE_KEY, THEME_STORAGE_VERSION, contrastRatio, loadTheme, resolveTheme, sanitizeTheme, saveTheme, themeContrastWarningCodes, themeContrastWarnings, themeVariables } from './presets'
 
 describe('theme settings', () => {
   beforeEach(() => window.localStorage.clear())
@@ -28,5 +28,6 @@ describe('theme settings', () => {
     expect(PRESETS.map(preset => [preset.id, themeContrastWarnings({ version: 1, presetId: preset.id, overrides: {} })])).toEqual(PRESETS.map(preset => [preset.id, []]))
     const warnings = themeContrastWarnings({ version: 1, presetId: 'classic-yellow', overrides: { case: '#FFFFFF', label: '#FFFFFF', lcd: '#FFFFFF', lcdPixel: '#FFFFFF', pageBackground: '#FFFFFF' } })
     expect(warnings).toHaveLength(3)
+    expect(themeContrastWarningCodes({ version: 1, presetId: 'classic-yellow', overrides: { case: '#FFFFFF', label: '#FFFFFF', lcd: '#FFFFFF', lcdPixel: '#FFFFFF', pageBackground: '#FFFFFF' } })).toEqual(['machineText', 'lcdPixels', 'pageText'])
   })
 })

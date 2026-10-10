@@ -1,3 +1,5 @@
+import { loadLocale } from '../i18n'
+
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 export class ApiError extends Error {
@@ -12,7 +14,12 @@ export class ApiError extends Error {
 async function request(path, options = {}) {
   let response
   try {
-    response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', ...options })
+    response = await fetch(path, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+      ...options,
+      headers: { 'Accept-Language': loadLocale(), ...options.headers },
+    })
   } catch (_error) {
     throw new ApiError('Could not reach the game server.', 0, 'NETWORK_ERROR')
   }

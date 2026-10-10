@@ -13,12 +13,14 @@ import BreakoutPanel from '../breakout-panel'
 import RacingPanel from '../rancing-panel'
 import TankPanel from '../tank-panel'
 import Logo from '../logo'
+import { useI18n } from '../../i18n'
 import style from './GameDevice.module.less'
 
 const DEVICE_WIDTH = 640
 const DEVICE_HEIGHT = 960
 
 export default function GameDevice({ shape, keyboardMode }) {
+  const { t } = useI18n()
   const { levels, speed, music, pause, game, games } = useSelector(state => state)
   const stageRef = useRef(null)
   const [machine, setMachine] = useState({ scale: 1, height: DEVICE_HEIGHT })
@@ -81,13 +83,13 @@ export default function GameDevice({ shape, keyboardMode }) {
                 {gameId === 'racing' && <RacingPanel />}
                 {gameId === 'breakout' && <BreakoutPanel />}
                 {gameId === 'tank' && <TankPanel />}
-                {pause === 0 && <Welcome game={gameId.toUpperCase()} />}
+                {pause === 0 && <Welcome game={t(`game.${gameId}`)} />}
                 <div className={style.state}>
-                  {pause === 0 ? <><p>HI-SCORE</p><Number number={games[game].highest} length={6} label="High score" /></> : <><p>SCORE</p><Number number={games[game].score} length={6} label="Score" /></>}
-                  <p>LEVEL</p>
-                  <Number number={levels} length={6} label="Level" />
-                  <p>SPEED</p>
-                  <Number number={speed} length={1} label="Speed" />
+                  {pause === 0 ? <><p>{t('device.highScore')}</p><Number number={games[game].highest} length={6} label={t('device.highScore')} /></> : <><p>{t('device.score')}</p><Number number={games[game].score} length={6} label={t('device.score')} /></>}
+                  <p>{t('device.level')}</p>
+                  <Number number={levels} length={6} label={t('device.level')} />
+                  <p>{t('device.speed')}</p>
+                  <Number number={speed} length={1} label={t('device.speed')} />
                   {pause === 0 && <Logo />}
                   <div className={style.bottom}>
                     <Music music={music} />
