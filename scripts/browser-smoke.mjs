@@ -164,6 +164,8 @@ async function checkDesktopComposition(cdp, width, height) {
     const boardFrame = document.querySelector('[class*="desktopLeaderboard"]')
     const movementGuide = document.querySelector('[aria-label="Movement keyboard controls"]')
     const actionGuide = document.querySelector('[aria-label="Action and system keyboard controls"]')
+    const guideToggle = document.querySelector('button[class*="guideToggle"]')
+    const themeButton = document.querySelector('button[aria-label="Change device"]')
     const bounds = element => {
       if (!element) return null
       const rect = element.getBoundingClientRect()
@@ -174,11 +176,16 @@ async function checkDesktopComposition(cdp, width, height) {
     }
     return { title: bounds(title), device: bounds(device), board: bounds(board), boardFrame: bounds(boardFrame),
       movementGuide: bounds(movementGuide), actionGuide: bounds(actionGuide),
+      guideToggle: bounds(guideToggle), themeButton: bounds(themeButton), guideExpanded: guideToggle?.getAttribute('aria-expanded'),
+      guideLabel: guideToggle?.textContent?.trim(),
+      guideControls: guideToggle?.getAttribute('aria-controls')?.split(' ').every(id => Boolean(document.getElementById(id))),
       actionKey: actionGuide?.textContent?.includes('Action / fire / rotate'),
-      changeDevice: document.querySelector('button[aria-label="Change device"]')?.textContent?.includes('Change device') }
+      changeDevice: themeButton?.textContent?.includes('Change device') }
   })()`)
   if (!layout.title?.visible || !layout.device?.visible || !layout.board?.visible || !layout.boardFrame?.visible ||
-    !layout.movementGuide?.visible || !layout.actionGuide?.visible || !layout.actionKey || !layout.changeDevice) {
+    !layout.movementGuide?.visible || !layout.actionGuide?.visible || !layout.guideToggle?.visible || !layout.themeButton?.visible ||
+    layout.guideExpanded !== 'true' || layout.guideLabel !== 'Hide guide' || !layout.guideControls ||
+    !layout.actionKey || !layout.changeDevice) {
     fail(`${width}x${height} desktop title, machine, leaderboard, or keyboard help is hidden: ${JSON.stringify(layout)}`)
   }
   const gap = width <= 1100 ? 8 : 12
@@ -193,10 +200,58 @@ async function checkDesktopComposition(cdp, width, height) {
   }
   if (layout.title.left < -1 || layout.title.top < -1 || layout.title.bottom > height + 1 ||
     layout.movementGuide.left < -1 || layout.movementGuide.bottom > height + 1 || layout.actionGuide.bottom > height + 1 ||
+    layout.guideToggle.left < -1 || layout.guideToggle.right > layout.device.left - gap || layout.guideToggle.bottom > height + 1 ||
+    layout.themeButton.left < -1 || layout.themeButton.right > layout.device.left - gap || layout.themeButton.bottom > height + 1 ||
     layout.boardFrame.right > width + 1 || layout.boardFrame.top < -1 || layout.boardFrame.bottom > height + 1) {
     fail(`${width}x${height} desktop side content exceeds the viewport: ${JSON.stringify(layout)}`)
   }
   return layout
+}
+
+async function clickGuideToggle(cdp, label) {
+  const point = await cdp.eval(`(() => {
+    const button = document.querySelector('button[class*="guideToggle"]')
+    if (!button) return null
+    const rect = button.getBoundingClientRect()
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    return { x, y, label: button.textContent.trim(),
+      visible: getComputedStyle(button).display !== 'none' && x >= 0 && x < innerWidth && y >= 0 && y < innerHeight }
+  })()`)
+  if (!point || !point.visible || point.label !== label) {
+    fail(`Guide toggle cannot be clicked as ${label}: ${JSON.stringify(point)}`)
+  }
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+}
+
+async function exerciseGuideToggle(cdp, width, height) {
+  await clickGuideToggle(cdp, 'Hide guide')
+  const hidden = await until(() => cdp.eval(`(() => {
+    const button = document.querySelector('button[class*="guideToggle"]')
+    const guides = ['movement-keyboard-guide', 'action-keyboard-guide'].map(id => document.getElementById(id))
+    const board = document.querySelector('[class*="desktopLeaderboard"] aside')
+    const device = document.querySelector('main [class*="GameDevice_device"]')
+    return { expanded: button?.getAttribute('aria-expanded'), label: button?.textContent?.trim(),
+      guidesHidden: guides.every(guide => guide?.hidden && getComputedStyle(guide).display === 'none' &&
+        guide.getBoundingClientRect().height === 0),
+      boardVisible: Boolean(board?.getBoundingClientRect().height),
+      deviceVisible: Boolean(device?.getBoundingClientRect().height),
+      stored: localStorage.getItem('brick-game-guide-visible') }
+  })()`), state => state.expanded === 'false' && state.label === 'Show guide' && state.guidesHidden &&
+    state.boardVisible && state.deviceVisible && state.stored === 'false', `${width}px hidden desktop guides`)
+  await checkViewportFit(cdp, width, height, false)
+  await checkPageHeight(cdp, width, height, 'hidden guides')
+  await clickGuideToggle(cdp, 'Show guide')
+  await until(() => cdp.eval(`(() => {
+    const button = document.querySelector('button[class*="guideToggle"]')
+    const guides = ['movement-keyboard-guide', 'action-keyboard-guide'].map(id => document.getElementById(id))
+    return button?.getAttribute('aria-expanded') === 'true' && button.textContent.trim() === 'Hide guide' &&
+      guides.every(guide => guide && !guide.hidden && getComputedStyle(guide).display !== 'none' &&
+        guide.getBoundingClientRect().height > 0) && localStorage.getItem('brick-game-guide-visible') === 'true'
+  })()`), Boolean, `${width}px restored desktop guides`)
+  await checkDesktopComposition(cdp, width, height)
+  return { hidden, restored: true }
 }
 
 async function checkMobileComposition(cdp, width, height) {
@@ -251,6 +306,7 @@ async function checkMobileComposition(cdp, width, height) {
       })),
       themeButton: bounds(document.querySelector('button[aria-label="Change device"]')),
       topTenButton: bounds([...document.querySelectorAll('button')].find(button => button.textContent.includes('Top 10'))),
+      guideToggle: bounds(document.querySelector('button[class*="guideToggle"]')),
       themeHasDeviceIcon: Boolean(document.querySelector('button[aria-label="Change device"] svg')),
       themeHasText: document.querySelector('button[aria-label="Change device"] span')?.textContent === 'Change device',
       themeHasOldPalette: Boolean(document.querySelector('button[aria-label="Change device"] [class*="triggerPalette"]'))
@@ -258,6 +314,9 @@ async function checkMobileComposition(cdp, width, height) {
   })()`)
   if (layout.title?.visible || layout.gameTitle?.visible || layout.board?.visible) {
     fail(`${width}x${height} mobile page exposes desktop title or leaderboard: ${JSON.stringify(layout)}`)
+  }
+  if (!layout.guideToggle || layout.guideToggle.visible) {
+    fail(`${width}x${height} mobile page exposes the desktop guide toggle: ${JSON.stringify(layout.guideToggle)}`)
   }
   if (!layout.device?.visible || layout.device.width < Math.min(width * .8, height * .53) ||
     Math.abs((layout.device.left + layout.device.right) / 2 - width / 2) > Math.max(10, width * .03)) {
@@ -557,10 +616,11 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
     : checkDesktopComposition(cdp, width, height), Boolean, `${width}x${height} initial composition`)
   const deviceRect = await checkViewportFit(cdp, width, height, mobile)
   await checkPageHeight(cdp, width, height, 'menu')
+  const guideToggle = mobile ? null : await exerciseGuideToggle(cdp, width, height)
   if (layoutOnly) {
     const screenshot = await capture(cdp, `tablet-${width}x${height}.png`, width)
     return { viewport: `${width}x${height}`, dimensions, bootstrapGets: bootRequests,
-      webSocketStatus: 101, deviceRect, composition, screenshot }
+      webSocketStatus: 101, deviceRect, composition, guideToggle, screenshot }
   }
 
   const overlays = mobile ? await exerciseMobileOverlays(cdp, width, height) : null
@@ -627,7 +687,7 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
     retroReloadGets = network.leaderboardRequests.length - beforeReload
     if (retroReloadGets !== 1) fail(`Retro reload made ${retroReloadGets} leaderboard GETs`)
   }
-  return { viewport: `${width}x${height}`, dimensions: after, deviceRect, composition, overlays, bootstrapGets: bootRequests,
+  return { viewport: `${width}x${height}`, dimensions: after, deviceRect, composition, guideToggle, overlays, bootstrapGets: bootRequests,
     webSocketStatus: 101, switchingGets: 0, exercisedGames, desktopKeyboard, lcdFeedback, screenshot, retroScreenshot, retroReloadGets }
 }
 

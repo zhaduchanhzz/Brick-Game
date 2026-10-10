@@ -13,6 +13,15 @@ import { COLOR_FIELDS, DEFAULT_PRESET_ID, THEME_STORAGE_VERSION, isHexColor, loa
 import style from './index.module.less'
 
 const COLOR_KEYS = new Set(COLOR_FIELDS.map(([key]) => key))
+const GUIDE_STORAGE_KEY = 'brick-game-guide-visible'
+
+function loadGuideVisibility() {
+  try {
+    return window.localStorage.getItem(GUIDE_STORAGE_KEY) !== 'false'
+  } catch (_error) {
+    return true
+  }
+}
 
 export function MobileLeaderboard({ panelProps }) {
   const [open, setOpen] = useState(false)
@@ -74,6 +83,7 @@ export default function App() {
   const [lastVerified, setLastVerified] = useState(null)
   const [claimCandidate, setClaimCandidate] = useState(null)
   const [runMode, setRunMode] = useState({ mode: 'idle' })
+  const [guideVisible, setGuideVisible] = useState(loadGuideVisibility)
   const gameMainRef = useRef(null)
   const leaderboard = useLeaderboardSync()
   const resolvedTheme = resolveTheme(theme)
@@ -81,6 +91,13 @@ export default function App() {
   const leaderboardProps = { gameId, board, status: leaderboard.status, connection: leaderboard.connection, error: leaderboard.error, onRetry: leaderboard.retry, lastVerified }
 
   useEffect(() => saveTheme(theme), [theme])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(GUIDE_STORAGE_KEY, String(guideVisible))
+    } catch (_error) {
+      // The toggle still works when browser storage is unavailable.
+    }
+  }, [guideVisible])
   useEffect(() => subscribeVerifiedRun(result => {
     setLastVerified(result)
     setClaimCandidate(result.eligibleToClaim === true ? result : null)
@@ -135,9 +152,12 @@ export default function App() {
         {runMode.mode !== 'idle' && <div className={style.runNotice}><RunModeNotice runMode={runMode} /></div>}
         <div className={style.toolbar}>
           <ThemeDialog theme={theme} onColorChange={changeColor} onPresetChange={choosePreset} onReset={resetTheme} />
+          <button className={style.guideToggle} type="button" aria-controls="movement-keyboard-guide action-keyboard-guide" aria-expanded={guideVisible} onClick={() => setGuideVisible(visible => !visible)}>
+            {guideVisible ? 'Hide guide' : 'Show guide'}
+          </button>
           <MobileLeaderboard panelProps={leaderboardProps} />
         </div>
-        <section className={style.controlsPanel} aria-label="Movement keyboard controls">
+        <section id="movement-keyboard-guide" className={style.controlsPanel} aria-label="Movement keyboard controls" hidden={!guideVisible}>
           <span className={style.controlsKicker}>DESKTOP CONTROLS / 01</span>
           <h2>Move &amp; select</h2>
           <div className={style.directionKeys} aria-label="Arrow keys">
@@ -153,7 +173,7 @@ export default function App() {
         </main>
         <div className={style.desktopLeaderboard}>
           <LeaderboardPanel {...leaderboardProps} />
-          <section className={style.controlsPanel} aria-label="Action and system keyboard controls">
+          <section id="action-keyboard-guide" className={style.controlsPanel} aria-label="Action and system keyboard controls" hidden={!guideVisible}>
             <span className={style.controlsKicker}>DESKTOP CONTROLS / 02</span>
             <h2>Action &amp; system</h2>
             <div className={style.shortcutRow}><kbd>X</kbd><span>Action / fire / rotate*</span></div>

@@ -45,7 +45,21 @@
 .brand p { margin: 0 0 8px; color: #ffd775; font-size: 11px; font-weight: 800; letter-spacing: 2.5px; }
 .brand h1 { margin: 0; font-size: clamp(29px, 3.7vw, 54px); letter-spacing: .055em; line-height: 1.02; text-shadow: 0 5px 16px rgba(0, 0, 0, .25); }
 .brand span { display: block; margin-top: 12px; color: #d6e3eb; font-size: 13px; line-height: 1.4; }
-.toolbar { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; max-width: 100%; margin-top: 18px; }
+.guideToggle {
+  flex: 0 0 112px;
+  width: 112px;
+  height: 42px;
+  border: 1px solid rgba(242, 238, 205, .66);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #41566b, #192d40 72%);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .21), 0 4px 10px rgba(0, 0, 0, .22);
+  color: #fff8e8;
+  font: 700 12px "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+  cursor: pointer;
+}
+.guideToggle:hover { background: linear-gradient(145deg, #526b81, #263d52 72%); }
+.guideToggle:focus-visible { outline: 3px solid #ffdc7d; outline-offset: 3px; }
 .layout {
   display: contents;
 }
@@ -77,6 +91,7 @@
   box-shadow: 0 24px 60px rgba(0, 0, 0, .27);
   color: #eff7fc;
 }
+.controlsPanel[hidden] { display: none; }
 .controlsKicker { color: #ffd46c; font-size: 11px; font-weight: 800; letter-spacing: 1.6px; }
 .controlsPanel h2 { margin: 7px 0 14px; font-size: 21px; line-height: 1.2; text-transform: uppercase; letter-spacing: .04em; }
 .controlsPanel p { margin: 14px 0 0; color: #c6d9e6; font-size: 12px; line-height: 1.5; }
@@ -142,7 +157,7 @@
     padding: 0;
   }
   .brand { display: none; }
-  .toolbar { width: auto; gap: 6px; margin: 0 0 0 auto; }
+  .toolbar { width: auto; max-width: none; flex-wrap: nowrap; gap: 6px; margin: 0 0 0 auto; }
   .layout {
     display: flex;
     width: 100%;
@@ -153,7 +168,7 @@
     margin: 0 auto;
   }
   .gameColumn { width: 100%; }
-  .gameTitle, .controlsPanel, .desktopLeaderboard { display: none; }
+  .gameTitle, .controlsPanel, .desktopLeaderboard, .guideToggle { display: none; }
   .runNotice { order: 2; margin-top: 4px; }
   .runNotice > p { margin: 0 0 4px; padding: 5px 8px; font-size: 11px; }
   .mobileLeaderboardButton {
