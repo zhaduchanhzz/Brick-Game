@@ -137,13 +137,31 @@ export default function App() {
           <ThemeDialog theme={theme} onColorChange={changeColor} onPresetChange={choosePreset} onReset={resetTheme} />
           <MobileLeaderboard panelProps={leaderboardProps} />
         </div>
-        <p className={style.controlsHint}>Use the machine buttons or arrow keys. P starts or pauses, R resets, S toggles sound, and Space rotates games from the menu.</p>
+        <section className={style.controlsPanel} aria-label="Movement keyboard controls">
+          <span className={style.controlsKicker}>DESKTOP CONTROLS / 01</span>
+          <h2>Move &amp; select</h2>
+          <div className={style.directionKeys} aria-label="Arrow keys">
+            <kbd>↑</kbd>
+            <div><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></div>
+          </div>
+          <p>Arrow keys move or steer while playing. On the menu, <kbd>←</kbd><kbd>→</kbd> set speed and <kbd>↑</kbd><kbd>↓</kbd> set level.</p>
+        </section>
       </header>
       <div className={style.layout}>
         <main ref={gameMainRef} tabIndex={-1} className={style.gameColumn} aria-label="Brick Game machine">
           <GameDevice shape={resolvedTheme.shape} />
         </main>
-        <div className={style.desktopLeaderboard}><LeaderboardPanel {...leaderboardProps} /></div>
+        <div className={style.desktopLeaderboard}>
+          <LeaderboardPanel {...leaderboardProps} />
+          <section className={style.controlsPanel} aria-label="Action and system keyboard controls">
+            <span className={style.controlsKicker}>DESKTOP CONTROLS / 02</span>
+            <h2>Action &amp; system</h2>
+            <div className={style.shortcutRow}><kbd>X</kbd><span>Action / fire / rotate*</span></div>
+            <div className={style.shortcutRow}><kbd>P</kbd><span>Start / pause</span></div>
+            <div className={style.shortcutRow}><kbd>R</kbd><span>Reset</span><kbd>S</kbd><span>Sound</span></div>
+            <p><kbd>Space</kbd> or <kbd>X</kbd> selects the next game on the menu. Space also acts in-game when no button is focused. *Action is used in Tetris, Tank and Shooting.</p>
+          </section>
+        </div>
       </div>
       <ClaimNameDialog result={claimCandidate} returnFocusRef={gameMainRef} onClose={onClaimClosed} onClaimed={onClaimed} onIneligible={onIneligible} />
     </div>

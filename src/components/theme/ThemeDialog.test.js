@@ -25,9 +25,9 @@ function TestTheme() {
 test('one trigger opens the accessible preset and custom color dialog', () => {
   render(<TestTheme />)
   expect(screen.queryByRole('dialog')).toBeNull()
-  expect(screen.getAllByRole('button', { name: 'Theme colors' })).toHaveLength(1)
-  expect(screen.getByRole('button', { name: 'Theme colors' }).querySelector('svg[aria-hidden="true"]')).not.toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Theme colors' }))
+  expect(screen.getAllByRole('button', { name: 'Change device' })).toHaveLength(1)
+  expect(screen.getByRole('button', { name: 'Change device' }).querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Change device' }))
   expect(screen.getByRole('dialog', { name: 'Theme colors' }).getAttribute('aria-modal')).toBe('true')
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close theme colors' }))
   expect(screen.getAllByRole('button', { pressed: true })).toHaveLength(1)
@@ -37,7 +37,7 @@ test('one trigger opens the accessible preset and custom color dialog', () => {
 test('preset and custom color changes leave sibling gameplay state intact', () => {
   render(<TestTheme />)
   fireEvent.click(screen.getByRole('button', { name: 'Tick game' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Theme colors' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Change device' }))
   fireEvent.click(screen.getByRole('button', { name: 'Ocean Blue' }))
   expect(screen.getByRole('button', { name: 'Ocean Blue' }).getAttribute('aria-pressed')).toBe('true')
   fireEvent.change(screen.getByLabelText('Machine body'), { target: { value: '#123456' } })
@@ -50,7 +50,7 @@ test('preset and custom color changes leave sibling gameplay state intact', () =
 
 test('Escape closes the dialog, restores focus, and Tab stays inside', () => {
   render(<TestTheme />)
-  const trigger = screen.getByRole('button', { name: 'Theme colors' })
+  const trigger = screen.getByRole('button', { name: 'Change device' })
   fireEvent.click(trigger)
   const dialog = screen.getByRole('dialog')
   fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })

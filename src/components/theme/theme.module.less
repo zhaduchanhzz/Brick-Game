@@ -2,23 +2,25 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 42px;
-  width: 42px;
+  gap: 5px;
+  flex: 0 0 136px;
+  width: 136px;
   height: 42px;
-  min-width: 42px;
+  min-width: 136px;
   min-height: 42px;
-  padding: 0;
+  padding: 0 6px;
   border: 1px solid rgba(242, 238, 205, .66);
   border-radius: 12px;
   background: linear-gradient(145deg, #41566b, #192d40 72%);
   box-shadow: inset 0 1px rgba(255, 255, 255, .21), 0 4px 10px rgba(0, 0, 0, .22);
   color: #fff8e8;
-  font: 700 13px "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+  font: 700 12px "Trebuchet MS", "Segoe UI", Arial, sans-serif;
   letter-spacing: .02em;
+  white-space: nowrap;
   cursor: pointer;
 }
 .trigger:hover { background: linear-gradient(145deg, #526b81, #263d52 72%); }
-.triggerDevice { display: block; width: 27px; height: 29px; filter: drop-shadow(0 1px 1px #0008); }
+.triggerDevice { display: block; flex: 0 0 25px; width: 25px; height: 27px; filter: drop-shadow(0 1px 1px #0008); }
 .triggerDeviceShell { fill: var(--case-color, #efcc19); stroke: #fff9e9; stroke-width: 1.5; }
 .triggerDeviceScreen { fill: var(--lcd-color, #9ead86); stroke: #253326; stroke-width: 1.5; }
 .triggerDevicePixels { fill: var(--lcd-pixel-color, #152419); }

@@ -66,18 +66,54 @@
 .gameTitle strong { color: #fff; font-size: 15px; letter-spacing: 1px; }
 .liveDot { width: 9px; height: 9px; border-radius: 50%; background: #7df2a5; box-shadow: 0 0 0 4px rgba(125, 242, 165, .17); }
 .runNotice { width: 100%; margin-top: 16px; }
-.controlsHint { max-width: 340px; margin: 26px 0 0; color: #e2edf2; font-size: 12px; line-height: 1.5; text-align: left; }
+.controlsPanel {
+  width: 100%;
+  min-width: 0;
+  margin-top: 24px;
+  border: 1px solid rgba(151, 186, 207, .42);
+  border-radius: 20px;
+  padding: 20px 22px;
+  background: rgba(10, 22, 36, .88);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .27);
+  color: #eff7fc;
+}
+.controlsKicker { color: #ffd46c; font-size: 11px; font-weight: 800; letter-spacing: 1.6px; }
+.controlsPanel h2 { margin: 7px 0 14px; font-size: 21px; line-height: 1.2; text-transform: uppercase; letter-spacing: .04em; }
+.controlsPanel p { margin: 14px 0 0; color: #c6d9e6; font-size: 12px; line-height: 1.5; }
+.controlsPanel kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 27px;
+  min-height: 26px;
+  border: 1px solid #7794aa;
+  border-bottom-width: 3px;
+  border-radius: 5px;
+  padding: 2px 5px;
+  background: #243e53;
+  color: #fff;
+  font: 700 12px/1 "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+  vertical-align: middle;
+}
+.directionKeys { width: max-content; margin: 0 auto; text-align: center; }
+.directionKeys > div { display: flex; gap: 4px; margin-top: 4px; }
+.shortcutRow { display: flex; align-items: center; gap: 9px; margin-top: 7px; color: #e7f2f8; font-size: 12px; }
+.shortcutRow span { min-width: 0; }
 .desktopLeaderboard {
   grid-column: 3;
   justify-self: center;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   width: 100%;
   max-width: 360px;
   min-width: 0;
   max-height: calc(100vh - 16px);
   max-height: calc(100dvh - 16px);
-  overflow-y: auto;
   border-radius: 20px;
 }
+.desktopLeaderboard > aside { min-height: 0; overflow-y: auto; }
+.desktopLeaderboard > .controlsPanel { flex: 0 0 auto; margin-top: 0; }
 .mobileLeaderboardButton, .mobileLeaderboardOverlay { display: none; }
 
 @media (min-width: 1000px) and (max-width: 1199px) {
@@ -117,7 +153,7 @@
     margin: 0 auto;
   }
   .gameColumn { width: 100%; }
-  .gameTitle, .controlsHint, .desktopLeaderboard { display: none; }
+  .gameTitle, .controlsPanel, .desktopLeaderboard { display: none; }
   .runNotice { order: 2; margin-top: 4px; }
   .runNotice > p { margin: 0 0 4px; padding: 5px 8px; font-size: 11px; }
   .mobileLeaderboardButton {

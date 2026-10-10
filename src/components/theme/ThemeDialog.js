@@ -45,7 +45,7 @@ export default function ThemeDialog({ theme, onColorChange, onPresetChange, onRe
 
   return (
     <>
-      <button ref={triggerRef} className={style.trigger} type="button" aria-label="Theme colors" title="Theme colors" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+      <button ref={triggerRef} className={style.trigger} type="button" aria-label="Change device" title="Change device" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
         <svg className={style.triggerDevice} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
           <rect className={style.triggerDeviceShell} x="5" y="1" width="22" height="30" rx="4" />
           <rect className={style.triggerDeviceScreen} x="8.5" y="4.5" width="15" height="13" rx="1" />
@@ -54,6 +54,7 @@ export default function ThemeDialog({ theme, onColorChange, onPresetChange, onRe
           <circle className={style.triggerDeviceButton} cx="21" cy="24" r="2" />
           <circle className={style.triggerDeviceButton} cx="24" cy="20" r="1.5" />
         </svg>
+        <span>Change device</span>
       </button>
       {open && createPortal(
         <div className={style.backdrop} onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false) }}>

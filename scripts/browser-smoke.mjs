@@ -103,12 +103,18 @@ async function clickButton(cdp, label) {
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
 }
 
+async function pressKey(cdp, key, code, keyCode) {
+  const params = { key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode }
+  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...params })
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...params })
+}
+
 async function gameLabel(cdp) {
   return cdp.eval(`document.querySelector('[class*="gameTitle"] strong')?.textContent?.trim().toLowerCase() || null`)
 }
 
 async function selectRetro(cdp) {
-  await clickButton(cdp, 'Theme colors')
+  await clickButton(cdp, 'Change device')
   await until(() => cdp.eval(`document.querySelector('[role="dialog"]')?.querySelector('button[aria-pressed]') !== null`),
     Boolean, 'theme modal presets')
   const changed = await cdp.eval(`(() => {
@@ -156,6 +162,8 @@ async function checkDesktopComposition(cdp, width, height) {
     const device = document.querySelector('main [class*="GameDevice_device"]')
     const board = document.querySelector('[class*="desktopLeaderboard"] aside')
     const boardFrame = document.querySelector('[class*="desktopLeaderboard"]')
+    const movementGuide = document.querySelector('[aria-label="Movement keyboard controls"]')
+    const actionGuide = document.querySelector('[aria-label="Action and system keyboard controls"]')
     const bounds = element => {
       if (!element) return null
       const rect = element.getBoundingClientRect()
@@ -164,13 +172,19 @@ async function checkDesktopComposition(cdp, width, height) {
         width: rect.width, height: rect.height,
         visible: computed.display !== 'none' && computed.visibility !== 'hidden' && rect.width > 0 && rect.height > 0 }
     }
-    return { title: bounds(title), device: bounds(device), board: bounds(board), boardFrame: bounds(boardFrame) }
+    return { title: bounds(title), device: bounds(device), board: bounds(board), boardFrame: bounds(boardFrame),
+      movementGuide: bounds(movementGuide), actionGuide: bounds(actionGuide),
+      actionKey: actionGuide?.textContent?.includes('Action / fire / rotate'),
+      changeDevice: document.querySelector('button[aria-label="Change device"]')?.textContent?.includes('Change device') }
   })()`)
-  if (!layout.title?.visible || !layout.device?.visible || !layout.board?.visible || !layout.boardFrame?.visible) {
-    fail(`${width}x${height} desktop title, machine, or leaderboard is hidden: ${JSON.stringify(layout)}`)
+  if (!layout.title?.visible || !layout.device?.visible || !layout.board?.visible || !layout.boardFrame?.visible ||
+    !layout.movementGuide?.visible || !layout.actionGuide?.visible || !layout.actionKey || !layout.changeDevice) {
+    fail(`${width}x${height} desktop title, machine, leaderboard, or keyboard help is hidden: ${JSON.stringify(layout)}`)
   }
   const gap = width <= 1100 ? 8 : 12
-  if (layout.title.right + gap > layout.device.left || layout.device.right + gap > layout.board.left) {
+  if (layout.title.right + gap > layout.device.left || layout.device.right + gap > layout.board.left ||
+    layout.movementGuide.right + gap > layout.device.left || layout.device.right + gap > layout.actionGuide.left ||
+    layout.board.bottom > layout.actionGuide.top || Math.abs(layout.movementGuide.width - layout.actionGuide.width) > 2) {
     fail(`${width}x${height} desktop title/machine/leaderboard order or spacing is wrong: ${JSON.stringify(layout)}`)
   }
   const machineCenter = (layout.device.left + layout.device.right) / 2
@@ -178,6 +192,7 @@ async function checkDesktopComposition(cdp, width, height) {
     fail(`${width}x${height} machine is not centered in the viewport: ${JSON.stringify(layout)}`)
   }
   if (layout.title.left < -1 || layout.title.top < -1 || layout.title.bottom > height + 1 ||
+    layout.movementGuide.left < -1 || layout.movementGuide.bottom > height + 1 || layout.actionGuide.bottom > height + 1 ||
     layout.boardFrame.right > width + 1 || layout.boardFrame.top < -1 || layout.boardFrame.bottom > height + 1) {
     fail(`${width}x${height} desktop side content exceeds the viewport: ${JSON.stringify(layout)}`)
   }
@@ -234,10 +249,11 @@ async function checkMobileComposition(cdp, width, height) {
         label,
         circle: bounds(document.querySelector('button[aria-label="' + label + '"] i'))
       })),
-      themeButton: bounds(document.querySelector('button[aria-label="Theme colors"]')),
+      themeButton: bounds(document.querySelector('button[aria-label="Change device"]')),
       topTenButton: bounds([...document.querySelectorAll('button')].find(button => button.textContent.includes('Top 10'))),
-      themeHasDeviceIcon: Boolean(document.querySelector('button[aria-label="Theme colors"] svg')),
-      themeHasOldPalette: Boolean(document.querySelector('button[aria-label="Theme colors"] [class*="triggerPalette"]'))
+      themeHasDeviceIcon: Boolean(document.querySelector('button[aria-label="Change device"] svg')),
+      themeHasText: document.querySelector('button[aria-label="Change device"] span')?.textContent === 'Change device',
+      themeHasOldPalette: Boolean(document.querySelector('button[aria-label="Change device"] [class*="triggerPalette"]'))
     }
   })()`)
   if (layout.title?.visible || layout.gameTitle?.visible || layout.board?.visible) {
@@ -296,11 +312,11 @@ async function checkMobileComposition(cdp, width, height) {
     }
   }
   const near = (actual, expected) => Math.abs(actual - expected) <= 1
-  if (!near(layout.themeButton.width, 42) || !near(layout.themeButton.height, 42) ||
+  if (!near(layout.themeButton.width, 136) || !near(layout.themeButton.height, 42) ||
     !near(layout.topTenButton.width, 84) || !near(layout.topTenButton.height, 42)) {
     fail(`${width}x${height} mobile toolbar buttons do not keep their fixed sizes: ${JSON.stringify({ theme: layout.themeButton, topTen: layout.topTenButton })}`)
   }
-  if (!layout.themeHasDeviceIcon || layout.themeHasOldPalette) {
+  if (!layout.themeHasDeviceIcon || !layout.themeHasText || layout.themeHasOldPalette) {
     fail(`${width}x${height} theme trigger must show the game-device SVG instead of palette dots`)
   }
   const overlaps = (a, b) => a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1
@@ -319,7 +335,7 @@ async function checkPageHeight(cdp, width, height, phase) {
 }
 
 async function exerciseMobileOverlays(cdp, width, height) {
-  await clickButton(cdp, 'Theme colors')
+  await clickButton(cdp, 'Change device')
   const themeDialog = await until(() => cdp.eval(`(() => {
     const element = document.querySelector('[role="dialog"][aria-labelledby="theme-dialog-title"]')
     if (!element) return null
@@ -483,6 +499,26 @@ async function exerciseAllGames(cdp, network, bootstrapRequestCount) {
   return exercised
 }
 
+async function exerciseDesktopKeyboard(cdp) {
+  await clickButton(cdp, 'LEFT')
+  const focused = await cdp.eval(`document.activeElement?.getAttribute('aria-label')`)
+  if (focused !== 'LEFT') fail(`Machine button did not retain focus for keyboard regression test: ${focused}`)
+  await pressKey(cdp, 'ArrowRight', 'ArrowRight', 39)
+  await until(() => cdp.eval(`document.querySelector('[aria-label="Speed 2"]') !== null`), Boolean,
+    'ArrowRight from focused machine button')
+  await pressKey(cdp, 'x', 'KeyX', 88)
+  await until(() => gameLabel(cdp), value => value === 'tetris', 'X action from focused machine button')
+  for (let index = 0; index < 5; index++) await pressKey(cdp, 'x', 'KeyX', 88)
+  await until(() => gameLabel(cdp), value => value === 'tank', 'X cycling back to Tank')
+  await pressKey(cdp, 'p', 'KeyP', 80)
+  await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Playing"]') !== null`),
+    Boolean, 'P start from focused machine button')
+  await pressKey(cdp, 'r', 'KeyR', 82)
+  await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Ready"]') !== null`),
+    Boolean, 'R reset from focused machine button')
+  return { focusedButton: focused, arrowSpeed: 2, action: 'X', start: 'P', reset: 'R' }
+}
+
 async function runViewport(cdp, network, width, height, mobile, layoutOnly = false) {
   await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile })
   await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: mobile, maxTouchPoints: 1 })
@@ -541,6 +577,7 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
   }
 
   const exercisedGames = mobile ? null : await exerciseAllGames(cdp, network, before + 1)
+  const desktopKeyboard = mobile ? null : await exerciseDesktopKeyboard(cdp)
 
   await clickButton(cdp, 'START(P)')
   await until(() => cdp.eval(`document.querySelector('main[aria-label="Brick Game machine"]')?.textContent?.includes('SCORE') &&
@@ -591,7 +628,7 @@ async function runViewport(cdp, network, width, height, mobile, layoutOnly = fal
     if (retroReloadGets !== 1) fail(`Retro reload made ${retroReloadGets} leaderboard GETs`)
   }
   return { viewport: `${width}x${height}`, dimensions: after, deviceRect, composition, overlays, bootstrapGets: bootRequests,
-    webSocketStatus: 101, switchingGets: 0, exercisedGames, lcdFeedback, screenshot, retroScreenshot, retroReloadGets }
+    webSocketStatus: 101, switchingGets: 0, exercisedGames, desktopKeyboard, lcdFeedback, screenshot, retroScreenshot, retroReloadGets }
 }
 
 async function runRankedSnake(cdp, network) {
