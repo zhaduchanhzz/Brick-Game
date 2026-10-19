@@ -71,8 +71,8 @@ const keyIdentity = (event) => event.code || event.keyCode || event.key
 
 const isSpaceKey = (event) => event.key === ' ' || event.key === 'Spacebar' || event.code === 'Space' || event.keyCode === 32
 
-const isMachineSpace = (event) => isSpaceKey(event) &&
-  Boolean(event.target && event.target.closest && event.target.closest('button[data-machine-control]'))
+const isButtonSpace = (event) => isSpaceKey(event) &&
+  Boolean(event.target && event.target.closest && event.target.closest('button'))
 
 const releaseActiveKey = () => {
   if (!keydownActive) return
@@ -89,14 +89,13 @@ const keyDown = (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return
   const interactive = e.target && e.target.closest &&
     e.target.closest('button, input, select, textarea, summary, a, [contenteditable]')
-  const machineSpace = isMachineSpace(e)
-  // Space always presses the large action button, including when another machine
-  // button retained focus after a pointer click. Toolbar buttons keep native Space.
-  if (interactive && (!interactive.matches('button') || (isSpaceKey(e) && !machineSpace))) return
-  const type = machineSpace ? 'rotate' : actionForKey(e)
+  // Space is the large action button even if another button (on the machine or
+  // toolbar) has focus. Text fields, selectors and dialogs keep native input.
+  if (interactive && !interactive.matches('button')) return
+  const type = actionForKey(e)
   if (!type) return
   e.preventDefault()
-  if (machineSpace) e.stopPropagation()
+  if (isButtonSpace(e)) e.stopPropagation()
   if (e.repeat || (keydownActive && keyIdentity(e) === keydownActive.key)) return
   // Only one direction repeats at a time. Release the old key and its visual.
   releaseActiveKey()
@@ -111,7 +110,7 @@ const keyDown = (e) => {
 }
 
 const keyUp = (e) => {
-  if (isMachineSpace(e)) {
+  if (isButtonSpace(e)) {
     e.preventDefault()
     e.stopPropagation()
   }

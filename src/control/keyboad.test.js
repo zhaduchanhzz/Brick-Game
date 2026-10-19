@@ -84,16 +84,19 @@ test('desktop shortcuts still work after a machine button receives focus', () =>
   unsubscribe()
 })
 
-test('shortcuts work after a toolbar closes, but Space still activates its button', () => {
+test('Space presses the large action button even when a toolbar button is focused', () => {
   const toolbarButton = document.createElement('button')
   document.body.appendChild(toolbarButton)
+  toolbarButton.focus()
   const onToolbar = keyEvent(toolbarButton, 'keydown', 'x', 88, { code: 'KeyX' })
   expect(onToolbar.defaultPrevented).toBe(true)
   expect(control.todo.rotate).toHaveBeenCalledTimes(1)
   keyEvent(toolbarButton, 'keyup', 'x', 88, { code: 'KeyX' })
   const space = keyEvent(toolbarButton, 'keydown', ' ', 32, { code: 'Space' })
-  expect(space.defaultPrevented).toBe(false)
-  expect(control.todo.rotate).toHaveBeenCalledTimes(1)
+  expect(space.defaultPrevented).toBe(true)
+  expect(control.todo.rotate).toHaveBeenCalledTimes(2)
+  const release = keyEvent(toolbarButton, 'keyup', ' ', 32, { code: 'Space' })
+  expect(release.defaultPrevented).toBe(true)
   toolbarButton.remove()
 })
 

@@ -962,6 +962,17 @@ async function exerciseDesktopKeyboard(cdp) {
   }
   for (let index = 0; index < 5; index++) await pressKeyWithFeedback(cdp, 'x', 'KeyX', 88, 'ROTATE DIRECTION')
   await until(() => gameLabel(cdp), value => value === 'tank', 'Space cycling back to Tank')
+  await cdp.eval(`document.querySelector('button[data-testid="keyboard-mode-toggle"]')?.focus()`)
+  if (!await cdp.eval(`document.activeElement?.getAttribute('data-testid') === 'keyboard-mode-toggle'`)) {
+    fail('Keyboard-mode toolbar button did not receive focus for Space regression check')
+  }
+  await pressKeyWithFeedback(cdp, ' ', 'Space', 32, 'ROTATE DIRECTION')
+  await until(() => gameLabel(cdp), value => value === 'tetris', 'Space ignores focused toolbar button')
+  if ((await keyboardModeState(cdp)).pressed !== 'false') {
+    fail('Space toggled the focused toolbar button instead of the large action button')
+  }
+  for (let index = 0; index < 5; index++) await pressKeyWithFeedback(cdp, 'x', 'KeyX', 88, 'ROTATE DIRECTION')
+  await until(() => gameLabel(cdp), value => value === 'tank', 'Toolbar Space cycling back to Tank')
   await pressKeyWithFeedback(cdp, 'p', 'KeyP', 80, 'START(P)')
   await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Playing"]') !== null`),
     Boolean, 'P start from focused machine button')
