@@ -8,8 +8,8 @@ import Racing, { createNewRacing, speeds as racingSpeeds } from '../games/racing
 import Breakout, { createNewBreakout, initPaddleY, initX, initY } from '../games/breakout/breakout'
 import Tank, { createNewTank } from '../games/tank/tank'
 
-export const RULES_VERSION = 3
-export const SUPPORTED_RULES_VERSIONS = Object.freeze([2, RULES_VERSION])
+export const RULES_VERSION = 4
+export const SUPPORTED_RULES_VERSIONS = Object.freeze([2, 3, RULES_VERSION])
 export const TICK_RATE = 20
 export const MAX_TICKS = 12000
 export const MAX_EVENTS = 6000
@@ -84,7 +84,7 @@ export const createInitialState = (gameId, seed, startLevel, startSpeed = 1, rul
   case 'shooting': state.game = createNewShooting(rng).toJsObj(); break
   case 'racing': state.game = createNewRacing(rng).toJsObj(); break
   case 'breakout': state.game = createNewBreakout({ x: initX, y: initY, paddleY: initPaddleY }).toJsObj(); break
-  case 'tank': state.game = createNewTank(rng).toJsObj(); break
+  case 'tank': state.game = createNewTank(rng, rulesVersion >= 4).toJsObj(); break
   default: throw new Error('Unknown game')
   }
   return state
@@ -254,7 +254,7 @@ const advance = (state, action, copyGame) => {
     break
   }
   case 'tank': {
-    game = new Tank({ ...next.game, rng })
+    game = new Tank({ ...next.game, rng, modernMovement: next.rulesVersion >= 4 })
     if (directionActions.includes(action)) game.move(action)
     if (action === 'rotate' && game.bullet === null) game.fire()
     game.draw()

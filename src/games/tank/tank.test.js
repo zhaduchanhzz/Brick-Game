@@ -30,10 +30,32 @@ describe('Tank collision and spawning', () => {
     expect(game.enemies[1].position.every(([x, y]) => !first.has(`${x},${y}`))).toBe(true)
   })
 
-  test('turning cannot rotate the player body through a stone', () => {
+  test('turning beside a stone uses a free adjacent cell instead of rotating through it', () => {
     const game = new Tank({ player: [10, 4], direction: 'up', stones: [[10, 4]], rng: () => 0 })
     game.move('down')
+    expect(game.direction).toBe('down')
+    expect(game.player).toEqual([11, 4])
+    expect(game.canPlayerOccupy(game.direction, game.player)).toBe(true)
+  })
+
+  test.each([
+    ['up', 'down', [[10, 4], [10, 6]], [11, 4]],
+    ['down', 'up', [[12, 4], [12, 6]], [9, 4]],
+    ['left', 'right', [[10, 4], [12, 4]], [10, 5]],
+    ['right', 'left', [[10, 6], [12, 6]], [10, 3]]
+  ])('a tank wedged facing %s can turn %s and step into free space', (direction, turn, stones, expectedPlayer) => {
+    const game = new Tank({ player: [10, 4], direction, stones, rng: () => 0 })
+    game.move(turn)
+    expect(game.direction).toBe(turn)
+    expect(game.player).toEqual(expectedPlayer)
+    expect(game.canPlayerOccupy(game.direction, game.player)).toBe(true)
+  })
+
+  test('escape-turn remains blocked when its destination contains an object', () => {
+    const game = new Tank({ player: [10, 4], direction: 'up', stones: [[10, 4], [13, 5]], rng: () => 0 })
+    game.move('down')
     expect(game.direction).toBe('up')
+    expect(game.player).toEqual([10, 4])
   })
 
   test('a blocked enemy cannot rotate through a stone', () => {

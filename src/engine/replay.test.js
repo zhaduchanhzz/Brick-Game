@@ -26,8 +26,8 @@ describe('shared deterministic game engine', () => {
   })
 
   test('new runs use score-driven difficulty while legacy v2 sessions keep their original rules', () => {
-    expect(RULES_VERSION).toBe(3)
-    expect(SUPPORTED_RULES_VERSIONS).toEqual([2, 3])
+    expect(RULES_VERSION).toBe(4)
+    expect(SUPPORTED_RULES_VERSIONS).toEqual([2, 3, 4])
     const run = createInitialState('breakout', 7, 1)
     run.game = { ...run.game, x: 4, y: 0, dx: -1, dy: 1, bricks: [[3, 1], [0, 9]] }
     run.score = 500
@@ -43,7 +43,36 @@ describe('shared deterministic game engine', () => {
     expect(() => createInitialState('breakout', 7, 1, 1, 1)).toThrow('Invalid game session')
   })
 
-  test('Tetris internal scoring level follows the score-driven LCD level in v3 only', () => {
+  test('Tank escape-turn is enabled in v4 while v3 replays retain the original collision result', () => {
+    const wedgedTank = rulesVersion => {
+      const state = createInitialState('tank', 7, 1, 1, rulesVersion)
+      state.game = {
+        ...state.game,
+        player: [10, 4],
+        direction: 'up',
+        stones: [[10, 4], [10, 6]],
+        enemies: [],
+        enemiesBullets: [],
+        bullet: null
+      }
+      return state
+    }
+
+    const legacyStart = wedgedTank(3)
+    const modernStart = wedgedTank(4)
+    expect(modernStart.game).toEqual(legacyStart.game)
+    expect(modernStart.game).not.toHaveProperty('modernMovement')
+
+    const legacy = step(legacyStart, 'down')
+    expect(legacy.game.direction).toBe('up')
+    expect(legacy.game.player).toEqual([10, 4])
+
+    const modern = step(modernStart, 'down')
+    expect(modern.game.direction).toBe('down')
+    expect(modern.game.player).toEqual([11, 4])
+  })
+
+  test('Tetris internal scoring level follows the score-driven LCD level in v3 and later', () => {
     const modern = createInitialState('tetris', 7, 1)
     modern.game = { ...modern.game, score: SCORE_PER_LEVEL.tetris * 2 }
     const advanced = step(modern)

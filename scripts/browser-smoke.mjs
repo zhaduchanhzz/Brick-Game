@@ -222,6 +222,21 @@ async function expectLocalizedMenu(cdp, game, level, speed, phase) {
   }))()`), state => state.game === game && state.level && state.speed, phase)
 }
 
+async function exerciseLocalizedGameNames(cdp, names, rotateLabel, locale) {
+  const seen = []
+  for (const expected of names) {
+    const state = await until(() => cdp.eval(`(() => ({
+      header: document.querySelector('[class*="gameTitle"] strong')?.textContent?.trim(),
+      lcd: document.querySelector('main [class*="welcome"] span')?.textContent?.trim(),
+      board: document.querySelector('[class*="desktopLeaderboard"] aside')?.getAttribute('aria-label')
+    }))()`), value => value.header === expected && value.lcd === expected && value.board?.includes(expected),
+    `${locale} game name ${expected}`)
+    seen.push(state.header)
+    await clickButton(cdp, rotateLabel)
+  }
+  return seen
+}
+
 async function exerciseLocales(cdp, network) {
   const width = 390
   const height = 844
@@ -247,6 +262,8 @@ async function exerciseLocales(cdp, network) {
   await checkLocaleSelectorFit(cdp, width, height)
   await checkViewportFit(cdp, width, height, true)
   await checkPageHeight(cdp, width, height, 'Vietnamese locale')
+  const vietnameseGames = await exerciseLocalizedGameNames(cdp,
+    ['XE TĂNG', 'XẾP HÌNH', 'RẮN SĂN MỒI', 'BẮN SÚNG', 'ĐUA XE', 'PHÁ GẠCH'], 'XOAY', 'Vietnamese')
   const vietnameseScreenshot = await capture(cdp, 'locale-vi-mobile-390x844.png', width)
   await clickButton(cdp, 'XOAY')
   await clickButton(cdp, 'NHANH')
@@ -261,6 +278,8 @@ async function exerciseLocales(cdp, network) {
     fail(`English UI did not update without losing game state: ${JSON.stringify(english)}`)
   }
   await expectLocalizedMenu(cdp, 'TETRIS', 'LEVEL 2', 'SPEED 2', 'English preserves selected game settings')
+  const englishGames = await exerciseLocalizedGameNames(cdp,
+    ['TETRIS', 'SNAKE', 'SHOOTING', 'RACING', 'BREAKOUT', 'TANK'], 'ROTATE DIRECTION', 'English')
   const englishScreenshot = await capture(cdp, 'locale-en-mobile-390x844.png', width)
   const chinese = await chooseLocale(cdp, 'zh-CN')
   if (chinese.label !== '语言' || chinese.themeLabel !== '更换掌机' ||
@@ -269,6 +288,8 @@ async function exerciseLocales(cdp, network) {
     fail(`Chinese UI labels did not translate: ${JSON.stringify(chinese)}`)
   }
   await expectLocalizedMenu(cdp, '俄罗斯方块', '等级 2', '速度 2', 'Chinese preserves selected game settings')
+  const chineseGames = await exerciseLocalizedGameNames(cdp,
+    ['俄罗斯方块', '贪吃蛇', '射击', '赛车', '打砖块', '坦克'], '旋转方向', 'Chinese')
   if (network.leaderboardRequests.length !== initialRequestCount) {
     fail('Switching languages unnecessarily reloaded leaderboard data')
   }
@@ -327,6 +348,7 @@ async function exerciseLocales(cdp, network) {
   return { default: vietnamese.value, options: vietnamese.options, switched: [english.value, chinese.value],
     persisted: persisted.value, restored: restoredVietnamese.value, selectedMenu, mobileSelector: vietnamese.bounds,
     desktopSelector, desktopChinese, desktopVietnamese, apiLanguages: [initialRequest.language, reloadedRequest.language],
+    gameNames: { vi: vietnameseGames, en: englishGames, 'zh-CN': chineseGames },
     screenshots: [vietnameseScreenshot, englishScreenshot, chineseScreenshot,
       vietnameseDesktopScreenshot, englishDesktopScreenshot, chineseDesktopScreenshot] }
 }
@@ -1309,7 +1331,7 @@ async function main() {
     url.protocol === 'https:' && url.hostname === 'ranked-audit-brick-game.zhaduchanhzz.workers.dev' &&
     !url.port && url.pathname === '/' && !url.search && !url.hash
   const productionModalOnly = process.env.BRICK_PRODUCTION_MODAL_E2E === '1' && process.env.BRICK_RANKED_E2E === '1' &&
-    url.protocol === 'https:' && url.hostname === 'brick-game.zhaduchanhzz.workers.dev' &&
+    url.protocol === 'https:' && ['game.pandownloader.com', 'brick-game.zhaduchanhzz.workers.dev'].includes(url.hostname) &&
     !url.port && url.pathname === '/' && !url.search && !url.hash
   if (!local && !isolatedPreview && !productionModalOnly) {
     fail('Browser smoke requires a local server, ranked QA Preview, or the modal-only production target')

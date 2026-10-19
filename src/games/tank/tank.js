@@ -13,8 +13,11 @@ const playerShape = { up:[[0, 1, 0],
   [1, 1, 0]] }
 
 class Tank {
-  constructor({ matrix, enemiesBullets, player, enemies, stones, death, direction, bullet, score, rng = Math.random }) {
+  constructor({ matrix, enemiesBullets, player, enemies, stones, death, direction, bullet, score, rng = Math.random, modernMovement = true }) {
     Object.defineProperty(this, 'rng', { value: rng })
+    // This is supplied from the replay rules version on every tick. Keeping it
+    // non-enumerable avoids changing the serialized game state or old replays.
+    Object.defineProperty(this, 'modernMovement', { value: modernMovement })
     this.player = player || [15, 4]
     this.enemies = enemies || []
     this.direction = direction || 'up'
@@ -370,15 +373,32 @@ class Tank {
     return true
   }
 
+  canPlayerOccupy(type, xy) {
+    const occupied = initPos(playerShape[type], xy)
+    return occupied.every(([x, y]) => x >= 0 && x < 20 && y >= 0 && y < 10 &&
+      !this.stones.some(stone => stone[0] === x && stone[1] === y) &&
+      !this.enemies.some(enemy => enemy.position.some(pos => pos[0] === x && pos[1] === y)))
+  }
+
   move(type) {
     if (this.direction !== type) {
-      const occupied = initPos(playerShape[type], this.player)
-      const blocked = occupied.some(([x, y]) => this.stones.some(stone => stone[0] === x && stone[1] === y) ||
-        this.enemies.some(enemy => enemy.position.some(pos => pos[0] === x && pos[1] === y)))
-      if (!blocked) this.direction = type
+      if (this.canPlayerOccupy(type, this.player)) {
+        this.direction = type
+      } else if (this.modernMovement) {
+        // A stone may sit in one of the empty corners of the current sprite.
+        // In that position an in-place turn is impossible, but a turn combined
+        // with one step away can be collision-free. Without this fallback two
+        // nearby stones can permanently trap an otherwise movable tank.
+        const nextXy = this.getNextXy(this.player, type)
+        if (this.canPlayerOccupy(type, nextXy)) {
+          this.direction = type
+          this.player = nextXy
+        }
+      }
     } else {
-      let nextXy = this.getNextXy(this.player, type)
-      if (this.checkMove(nextXy, type)) {
+      const nextXy = this.getNextXy(this.player, type)
+      const canMove = this.modernMovement ? this.canPlayerOccupy(type, nextXy) : this.checkMove(nextXy, type)
+      if (canMove) {
         this.player = nextXy
       }
     }
@@ -402,8 +422,8 @@ class Tank {
   }
 }
 
-export const createNewTank = (rng = Math.random) => {
-  return new Tank({ rng })
+export const createNewTank = (rng = Math.random, modernMovement = true) => {
+  return new Tank({ rng, modernMovement })
 }
 
 export default Tank
