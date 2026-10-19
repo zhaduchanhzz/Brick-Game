@@ -875,6 +875,18 @@ async function exerciseAllGames(cdp, network, bootstrapRequestCount) {
     await clickButton(cdp, 'RESET(R)')
     await until(() => cdp.eval(`document.querySelector('main[aria-label="Brick Game machine"]')?.textContent?.includes('WELCOME') &&
       document.querySelector('[role="img"][aria-label="Ready"]') !== null`), Boolean, `${gameId} reset`)
+    if (gameId === 'tank') {
+      await clickButton(cdp, 'START(P)')
+      await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Playing"]') !== null`),
+        Boolean, 'Tank restart', 15000)
+      const restartedMatrix = await cdp.eval(`document.querySelector('main [class*="index_matrix"]')?.innerHTML || null`)
+      await clickButton(cdp, 'ROTATE DIRECTION')
+      await until(() => cdp.eval(`document.querySelector('main [class*="index_matrix"]')?.innerHTML || null`),
+        value => Boolean(value && value !== restartedMatrix), 'Tank action after restart', 2000)
+      await clickButton(cdp, 'RESET(R)')
+      await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Ready"]') !== null`),
+        Boolean, 'Tank second reset')
+    }
     exercised.push({ gameId, input: inputs[gameId], reset: true })
     await clickButton(cdp, 'ROTATE DIRECTION')
     await until(() => gameLabel(cdp), value => value === GAME_IDS[(i + 1) % GAME_IDS.length], `${gameId} next menu`)
@@ -939,13 +951,24 @@ async function exerciseDesktopKeyboard(cdp) {
   await until(() => gameLabel(cdp), value => value === 'tetris', 'X action from focused machine button')
   for (let index = 0; index < 5; index++) await pressKeyWithFeedback(cdp, 'x', 'KeyX', 88, 'ROTATE DIRECTION')
   await until(() => gameLabel(cdp), value => value === 'tank', 'X cycling back to Tank')
+  if (await cdp.eval(`document.activeElement?.getAttribute('aria-label')`) !== 'LEFT') {
+    fail('LEFT lost focus before Space action regression check')
+  }
+  await pressKeyWithFeedback(cdp, ' ', 'Space', 32, 'ROTATE DIRECTION')
+  await until(() => gameLabel(cdp), value => value === 'tetris',
+    'Space chooses one next game despite focused LEFT button')
+  if (!await cdp.eval(`document.querySelector('[aria-label="SPEED 2"]') !== null`)) {
+    fail('Space activated focused LEFT instead of the large action button')
+  }
+  for (let index = 0; index < 5; index++) await pressKeyWithFeedback(cdp, 'x', 'KeyX', 88, 'ROTATE DIRECTION')
+  await until(() => gameLabel(cdp), value => value === 'tank', 'Space cycling back to Tank')
   await pressKeyWithFeedback(cdp, 'p', 'KeyP', 80, 'START(P)')
   await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Playing"]') !== null`),
     Boolean, 'P start from focused machine button')
   await pressKeyWithFeedback(cdp, 'r', 'KeyR', 82, 'RESET(R)')
   await until(() => cdp.eval(`document.querySelector('[role="img"][aria-label="Ready"]') !== null`),
     Boolean, 'R reset from focused machine button')
-  return { focusedButton: focused, arrowSpeed: 2, action: 'X', start: 'P', reset: 'R' }
+  return { focusedButton: focused, arrowSpeed: 2, action: 'X and Space', start: 'P', reset: 'R' }
 }
 
 async function runViewport(cdp, network, width, height, mobile, layoutOnly = false) {

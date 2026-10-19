@@ -4,6 +4,8 @@ import { useI18n } from '../../i18n'
 
 function noticeFor(runMode, t) {
   switch (runMode.mode) {
+  case 'starting':
+    return t('run.starting')
   case 'casual':
     return runMode.reason === 'NETWORK_ERROR'
       ? t('run.casualNetwork')

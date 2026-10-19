@@ -108,6 +108,7 @@ export const startGame = async () => {
   if (starting || active || store.getState().pause !== 0) return
   starting = true
   const startToken = ++generation
+  publishRunMode({ mode: 'starting' })
   const { game, levels, speed } = store.getState()
   const gameId = initGameData[game].name
   let session = null
@@ -121,8 +122,10 @@ export const startGame = async () => {
     if (error.code === 'NETWORK_ERROR') casualReason = 'NETWORK_ERROR'
     session = null
   }
-  if (startToken !== generation || store.getState().game !== game || store.getState().levels !== levels || store.getState().pause !== 0) {
+  if (startToken !== generation) return
+  if (store.getState().game !== game || store.getState().levels !== levels || store.getState().pause !== 0) {
     starting = false
+    publishRunMode({ mode: 'idle' })
     return
   }
   const seed = session ? session.seed : localSeed()

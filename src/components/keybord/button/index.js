@@ -3,19 +3,16 @@ import cn from 'classnames'
 import style from './index.module.less'
 import { transform } from '../../../utils/const'
 import control from '../../../control'
-import { shallowEqual, useSelector } from 'react-redux'
+import store from '../../../store'
 import { initGameData } from '../../../utils/games'
 import { subscribeKeyboardFeedback } from '../../../control/keyboardFeedback'
 import PropTypes from 'prop-types'
 
 const Button = ({ color, size, top, left, label, position, arrow, type }) => {
   const [active, setActive] = useState(false)
-  const suppressClick = useRef(false)
   const activeSince = useRef(null)
   const releaseTimer = useRef(null)
   const pressedSources = useRef(new Set())
-  const pause = useSelector(state => state.pause, shallowEqual)
-  const game = useSelector(state => state.game, shallowEqual)
 
   const pressVisual = useCallback(source => {
     pressedSources.current.add(source)
@@ -40,13 +37,14 @@ const Button = ({ color, size, top, left, label, position, arrow, type }) => {
   const memoHandleDown = useCallback(
     source => {
       pressVisual(source)
+      const { pause, game } = store.getState()
       if (pause === 0) {
         control['todo'][type]()
       } else {
         control[initGameData[game].name][type]()
       }
     },
-    [pause, game, type, pressVisual]
+    [type, pressVisual]
   )
 
   const memoHandleUp = useCallback(
@@ -66,6 +64,7 @@ const Button = ({ color, size, top, left, label, position, arrow, type }) => {
   return (
     <button
       type="button"
+      data-machine-control={type}
       aria-label={label}
       className={cn({ [style.button]: true, [style[color]]: true, [style[size]]: true })}
       style={{ top, left }}
@@ -77,21 +76,22 @@ const Button = ({ color, size, top, left, label, position, arrow, type }) => {
       onPointerCancel={() => memoHandleUp('pointer')}
       onLostPointerCapture={() => memoHandleUp('pointer')}
       onKeyDown={event => {
-        if ((event.key === 'Enter' || event.key === ' ') && !event.repeat) {
+        if (event.key === 'Enter') {
           event.preventDefault()
-          suppressClick.current = true
-          memoHandleDown('button-key')
+          if (!event.repeat) memoHandleDown('button-key')
         }
       }}
       onKeyUp={event => {
-        if (event.key === 'Enter' || event.key === ' ') memoHandleUp('button-key')
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          memoHandleUp('button-key')
+        }
       }}
       onClick={event => {
-        if (event.detail === 0 && !suppressClick.current) {
+        if (event.detail === 0) {
           memoHandleDown('click')
           memoHandleUp('click')
         }
-        suppressClick.current = false
       }}
       onBlur={() => memoHandleUp('button-key')}
     >

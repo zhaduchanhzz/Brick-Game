@@ -52,8 +52,11 @@ test('handled gameplay arrows prevent page scroll, including key repeats', () =>
 })
 
 test('desktop shortcuts still work after a machine button receives focus', () => {
+  const feedback = []
+  const unsubscribe = subscribeKeyboardFeedback((type, pressed) => feedback.push([type, pressed]))
   const machineButton = document.createElement('button')
   machineButton.setAttribute('aria-label', 'LEFT')
+  machineButton.setAttribute('data-machine-control', 'left')
   document.body.appendChild(machineButton)
   machineButton.focus()
 
@@ -68,10 +71,17 @@ test('desktop shortcuts still work after a machine button receives focus', () =>
   keyEvent(machineButton, 'keyup', 'x', 88, { code: 'KeyX' })
 
   const space = keyEvent(machineButton, 'keydown', ' ', 32, { code: 'Space' })
-  expect(space.defaultPrevented).toBe(false)
-  expect(control.todo.rotate).toHaveBeenCalledTimes(1)
-  keyEvent(machineButton, 'keyup', ' ', 32, { code: 'Space' })
+  expect(space.defaultPrevented).toBe(true)
+  expect(control.todo.rotate).toHaveBeenCalledTimes(2)
+  expect(control.todo.left).toHaveBeenCalledTimes(1)
+  const repeat = keyEvent(machineButton, 'keydown', ' ', 32, { code: 'Space', repeat: true })
+  expect(repeat.defaultPrevented).toBe(true)
+  expect(control.todo.rotate).toHaveBeenCalledTimes(2)
+  const release = keyEvent(machineButton, 'keyup', ' ', 32, { code: 'Space' })
+  expect(release.defaultPrevented).toBe(true)
+  expect(feedback.slice(-2)).toEqual([['rotate', true], ['rotate', false]])
   machineButton.remove()
+  unsubscribe()
 })
 
 test('shortcuts work after a toolbar closes, but Space still activates its button', () => {

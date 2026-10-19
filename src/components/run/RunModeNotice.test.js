@@ -6,6 +6,11 @@ import { I18nProvider } from '../../i18n'
 
 const renderEnglish = element => render(<I18nProvider locale="en">{element}</I18nProvider>)
 
+test('a pending game start has a visible status', () => {
+  renderEnglish(<RunModeNotice runMode={{ mode: 'starting' }} />)
+  expect(screen.getByRole('status').textContent).toContain('Starting game')
+})
+
 test('casual fallback is surfaced as an unranked run', () => {
   const events = []
   const unsubscribe = subscribeRunMode(event => events.push(event))

@@ -71,6 +71,9 @@ const keyIdentity = (event) => event.code || event.keyCode || event.key
 
 const isSpaceKey = (event) => event.key === ' ' || event.key === 'Spacebar' || event.code === 'Space' || event.keyCode === 32
 
+const isMachineSpace = (event) => isSpaceKey(event) &&
+  Boolean(event.target && event.target.closest && event.target.closest('button[data-machine-control]'))
+
 const releaseActiveKey = () => {
   if (!keydownActive) return
   control.clearLoop()
@@ -86,12 +89,14 @@ const keyDown = (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return
   const interactive = e.target && e.target.closest &&
     e.target.closest('button, input, select, textarea, summary, a, [contenteditable]')
-  // Buttons keep their native Space activation; other shortcuts work even when
-  // a machine or toolbar button retained focus after a click or dialog close.
-  if (interactive && (!interactive.matches('button') || isSpaceKey(e))) return
-  const type = actionForKey(e)
+  const machineSpace = isMachineSpace(e)
+  // Space always presses the large action button, including when another machine
+  // button retained focus after a pointer click. Toolbar buttons keep native Space.
+  if (interactive && (!interactive.matches('button') || (isSpaceKey(e) && !machineSpace))) return
+  const type = machineSpace ? 'rotate' : actionForKey(e)
   if (!type) return
   e.preventDefault()
+  if (machineSpace) e.stopPropagation()
   if (e.repeat || (keydownActive && keyIdentity(e) === keydownActive.key)) return
   // Only one direction repeats at a time. Release the old key and its visual.
   releaseActiveKey()
@@ -106,6 +111,10 @@ const keyDown = (e) => {
 }
 
 const keyUp = (e) => {
+  if (isMachineSpace(e)) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
   if (keydownActive && keyIdentity(e) === keydownActive.key) {
     releaseActiveKey()
   }

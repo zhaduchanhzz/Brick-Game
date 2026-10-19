@@ -1,7 +1,8 @@
 import { finishRun, startRun } from '../api/client'
 import { publishRunMode, subscribeRunMode } from '../api/runMode'
 import { subscribeVerifiedRun } from '../api/runResults'
-import { finishDisplay, resetGame, startGame } from './clientRun'
+import { step } from './replay'
+import { finishDisplay, resetGame, startGame, togglePause } from './clientRun'
 
 jest.mock('../api/client', () => ({ startRun: jest.fn(), finishRun: jest.fn() }))
 jest.mock('./replay', () => ({
@@ -10,7 +11,7 @@ jest.mock('./replay', () => ({
   MAX_TICKS: 12000,
   MAX_EVENTS: 1000,
   createInitialState: gameId => ({ gameId, game: {}, tick: 0, score: 0, currentLevel: 1, speed: 1, paused: false, terminal: false }),
-  step: state => ({ ...state, tick: state.tick + 1, score: 10, terminal: true }),
+  step: jest.fn(),
   isAllowedAction: () => true,
 }))
 
@@ -25,6 +26,7 @@ beforeEach(() => {
   startRun.mockReset()
   startRun.mockResolvedValue(session)
   finishRun.mockReset()
+  step.mockImplementation(state => ({ ...state, tick: state.tick + 1, score: 10, terminal: true }))
   publishRunMode({ mode: 'idle' })
 })
 
@@ -106,4 +108,47 @@ test('an unavailable ranked server starts a casual run that cannot publish a cla
 
   unsubscribeMode()
   unsubscribeResult()
+})
+
+test('START stays visibly pending and an immediate PAUSE works once the run opens', async () => {
+  const modes = []
+  const unsubscribeMode = subscribeRunMode(value => modes.push(value.mode))
+  startRun.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(session), 1000)))
+  step.mockImplementation((state, action) => ({
+    ...state,
+    tick: state.tick + 1,
+    paused: action === 'pause' ? true : action === 'resume' ? false : state.paused,
+  }))
+
+  const pending = startGame()
+  expect(modes[modes.length - 1]).toBe('starting')
+  await startGame()
+  expect(startRun).toHaveBeenCalledTimes(1)
+  jest.advanceTimersByTime(1000)
+  await pending
+  expect(modes[modes.length - 1]).toBe('ranked')
+  togglePause()
+  jest.advanceTimersByTime(50)
+  expect(step).toHaveBeenLastCalledWith(expect.objectContaining({ paused: false }), 'pause')
+  togglePause()
+  jest.advanceTimersByTime(50)
+  expect(step).toHaveBeenLastCalledWith(expect.objectContaining({ paused: true }), 'resume')
+  unsubscribeMode()
+})
+
+test('a stale START response after RESET cannot unlock a newer pending START', async () => {
+  let resolveFirst
+  let resolveSecond
+  startRun.mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+    .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve }))
+  const first = startGame()
+  resetGame()
+  const second = startGame()
+  resolveFirst(session)
+  await first
+  await startGame()
+  expect(startRun).toHaveBeenCalledTimes(2)
+  resolveSecond({ ...session, runId: 'run-2' })
+  await second
+  expect(startRun).toHaveBeenCalledTimes(2)
 })

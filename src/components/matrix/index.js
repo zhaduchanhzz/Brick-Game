@@ -45,7 +45,9 @@ const Matrix = ({ matrix, isDead, gameover }) => {
     }
   }
   useEffect(() => {
-    if (pause === 0 && ending.current) {
+    // RESET and START can be batched into one React render. A live board after
+    // death is therefore also a new session, even if pause=0 was never seen.
+    if (ending.current && (pause === 0 || !isDead)) {
       timers.current.forEach(clearTimeout)
       timers.current = []
       ending.current = false
